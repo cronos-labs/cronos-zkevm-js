@@ -23,6 +23,7 @@ import {
     IL1Bridge,
     IL2Bridge,
     IL2Bridge__factory,
+    IZkSync__factory,
 } from "../typechain";
 import {
     Address,
@@ -55,8 +56,6 @@ import {
     L2_ETH_TOKEN_ADDRESS,
     EIP712_TX_TYPE,
     REQUIRED_L1_TO_L2_GAS_PER_PUBDATA_LIMIT,
-    checkBridgeWETHAllowed,
-    ALLOW_BRIDGE_WETH,
 } from "./utils";
 import { Signer } from "./signer";
 
@@ -80,9 +79,12 @@ export function JsonRpcApiProvider<TBase extends Constructor<ethers.JsonRpcApiPr
             erc20BridgeL2?: Address;
             wethBridgeL1?: Address;
             wethBridgeL2?: Address;
+            baseToken?: Address;
         } {
             throw new Error("Must be implemented by the derived class!");
         }
+
+        _bridgeWETHAllowed?: boolean;
 
         override _getBlockTag(blockTag?: BlockTag): string | Promise<string> {
             if (blockTag == "committed") {
@@ -155,7 +157,7 @@ export function JsonRpcApiProvider<TBase extends Constructor<ethers.JsonRpcApiPr
                 return ETH_ADDRESS;
             } else {
                 const bridgeAddresses = await this.getDefaultBridgeAddresses();
-                if (ALLOW_BRIDGE_WETH) {
+                if (await this.checkBridgeWETHAllowed()) {
                     const l2WethBridge = IL2Bridge__factory.connect(
                         bridgeAddresses.wethL2 as string,
                         this,
@@ -176,9 +178,11 @@ export function JsonRpcApiProvider<TBase extends Constructor<ethers.JsonRpcApiPr
         async l1TokenAddress(token: Address): Promise<string> {
             if (token == ETH_ADDRESS) {
                 return ETH_ADDRESS;
+            } else if (token == (await this.baseTokenAddress())) {
+                return token;
             } else {
                 const bridgeAddresses = await this.getDefaultBridgeAddresses();
-                if (ALLOW_BRIDGE_WETH) {
+                if (await this.checkBridgeWETHAllowed()) {
                     const l2WethBridge = IL2Bridge__factory.connect(
                         bridgeAddresses.wethL2 as string,
                         this,
@@ -234,11 +238,12 @@ export function JsonRpcApiProvider<TBase extends Constructor<ethers.JsonRpcApiPr
         }
 
         async getDefaultBridgeAddresses() {
+            const isBridgeWETHAllowed = await this.checkBridgeWETHAllowed();
             if (!this.contractAddresses().erc20BridgeL1) {
                 let addresses = await this.send("zks_getBridgeContracts", []);
                 this.contractAddresses().erc20BridgeL1 = addresses.l1Erc20DefaultBridge;
                 this.contractAddresses().erc20BridgeL2 = addresses.l2Erc20DefaultBridge;
-                if (ALLOW_BRIDGE_WETH) {
+                if (isBridgeWETHAllowed) {
                     this.contractAddresses().wethBridgeL1 = addresses.l1WethBridge;
                     this.contractAddresses().wethBridgeL2 = addresses.l2WethBridge;
                 }
@@ -246,10 +251,10 @@ export function JsonRpcApiProvider<TBase extends Constructor<ethers.JsonRpcApiPr
             return {
                 erc20L1: this.contractAddresses().erc20BridgeL1,
                 erc20L2: this.contractAddresses().erc20BridgeL2,
-                wethL1: ALLOW_BRIDGE_WETH
+                wethL1: isBridgeWETHAllowed
                     ? this.contractAddresses().wethBridgeL1
                     : (null as unknown as string),
-                wethL2: ALLOW_BRIDGE_WETH
+                wethL2: isBridgeWETHAllowed
                     ? this.contractAddresses().wethBridgeL2
                     : (null as unknown as string),
             };
@@ -316,8 +321,8 @@ export function JsonRpcApiProvider<TBase extends Constructor<ethers.JsonRpcApiPr
             tx.overrides ??= {};
             tx.overrides.from ??= tx.from;
 
-            if (isETH(tx.token)) {
-                checkBridgeWETHAllowed();
+            const isBridgeWETHAllowed = await this.checkBridgeWETHAllowed();
+            if (isETH(tx.token) && isBridgeWETHAllowed) {
                 if (!tx.overrides.value) {
                     tx.overrides.value = tx.amount;
                 }
@@ -337,7 +342,7 @@ export function JsonRpcApiProvider<TBase extends Constructor<ethers.JsonRpcApiPr
             if (tx.bridgeAddress == null) {
                 const bridgeAddresses = await this.getDefaultBridgeAddresses();
                 let l1WethToken = ethers.ZeroAddress;
-                if (ALLOW_BRIDGE_WETH) {
+                if (isBridgeWETHAllowed) {
                     const l2WethBridge = IL2Bridge__factory.connect(
                         bridgeAddresses.wethL2 as string,
                         this,
@@ -383,8 +388,7 @@ export function JsonRpcApiProvider<TBase extends Constructor<ethers.JsonRpcApiPr
             tx.overrides ??= {};
             tx.overrides.from ??= tx.from;
 
-            if (tx.token == null || tx.token == ETH_ADDRESS) {
-                checkBridgeWETHAllowed();
+            if (tx.token == null || (tx.token == ETH_ADDRESS && (await this.checkBridgeWETHAllowed()))) {
                 return {
                     ...tx.overrides,
                     to: tx.to,
@@ -573,6 +577,25 @@ export function JsonRpcApiProvider<TBase extends Constructor<ethers.JsonRpcApiPr
                 };
             }
             return result;
+        }
+
+        async baseTokenAddress(): Promise<string> {
+            if (!this.contractAddresses().baseToken) {
+                const zkSyncContractAddress = await this.getMainContractAddress();
+                const zkSync = IZkSync__factory.connect(zkSyncContractAddress, this);
+                this.contractAddresses().baseToken = await zkSync.baseTokenAddress();
+            }
+
+            return this.contractAddresses().baseToken as string;
+        }
+
+        async checkBridgeWETHAllowed(): Promise<boolean> {
+            if (this._bridgeWETHAllowed == undefined) {
+                const baseTokenAddress = await this.baseTokenAddress();
+                this._bridgeWETHAllowed = baseTokenAddress == ethers.ZeroAddress;
+            }
+
+            return this._bridgeWETHAllowed;
         }
     };
 }
