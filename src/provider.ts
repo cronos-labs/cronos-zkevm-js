@@ -16,11 +16,7 @@ import {
     resolveProperties,
     FetchRequest,
 } from "ethers";
-import {
-    IERC20__factory,
-    IEthToken__factory,
-    IL2Bridge__factory,
-} from "../typechain";
+import { IERC20__factory, IEthToken__factory, IL2Bridge__factory } from "../typechain";
 import {
     Address,
     TransactionResponse,
@@ -157,7 +153,7 @@ export function JsonRpcApiProvider<TBase extends Constructor<ethers.JsonRpcApiPr
             } else if (await this.isBaseTokenAddress(token)) {
                 // baseToken doesn't have a token address
                 return "0x";
-            }else {
+            } else {
                 const bridgeAddresses = await this.getDefaultBridgeAddresses();
                 if (bridgeAddresses.wethL2 != null) {
                     const l2WethBridge = IL2Bridge__factory.connect(
@@ -252,7 +248,7 @@ export function JsonRpcApiProvider<TBase extends Constructor<ethers.JsonRpcApiPr
                 erc20L2: this.contractAddresses().erc20BridgeL2,
                 wethL1: this.contractAddresses().wethBridgeL1,
                 wethL2: this.contractAddresses().wethBridgeL2,
-                baseToken: this.contractAddresses().baseToken
+                baseToken: this.contractAddresses().baseToken,
             };
         }
 
@@ -582,13 +578,14 @@ export function JsonRpcApiProvider<TBase extends Constructor<ethers.JsonRpcApiPr
         }
 
         async isBaseTokenAddress(token: Address): Promise<boolean> {
-            return token.toLowerCase() == await this.getBaseTokenAddress();
+            return token.toLowerCase() == (await this.getBaseTokenAddress());
         }
 
         checkBridgeWETHAllowed(): boolean {
             if (this._bridgeWETHAllowed == undefined) {
                 const baseTokenAddress = this.contractAddresses().baseToken;
-                this._bridgeWETHAllowed = (baseTokenAddress == null || baseTokenAddress == ethers.ZeroAddress);
+                this._bridgeWETHAllowed =
+                    baseTokenAddress == null || baseTokenAddress == ethers.ZeroAddress;
             }
 
             return this._bridgeWETHAllowed;

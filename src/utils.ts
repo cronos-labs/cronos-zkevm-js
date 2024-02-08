@@ -521,7 +521,7 @@ export async function estimateDefaultBridgeDepositL2Gas(
     // and so estimation for the zero address may be smaller than for the sender.
     from ??= ethers.Wallet.createRandom().address;
 
-    await providerL2.getMainContractAddress();    
+    await providerL2.getMainContractAddress();
 
     if (token == ETH_ADDRESS && providerL2._bridgeWETHAllowed) {
         return await providerL2.estimateL1ToL2Execute({
