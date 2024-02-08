@@ -50,7 +50,7 @@
         "lint:check": "prettier . --check",
         "watch": "tsc --watch",
         "types": "typechain --target ethers-v6 --out-dir typechain abi/*.json",
-        "cro-test": "mocha -r ts-node/register --bail tests/setup.test.cro.ts"
+        "cro-test": "mocha -r ts-node/register --bail tests/baseToken.test.ts"
     },
     "publishConfig": {
         "access": "public"

@@ -247,7 +247,7 @@ export function AdapterL1<TBase extends Constructor<TxSender>>(Base: TBase) {
                 let allowance = await CRO.allowance(this.getAddress(), contractAddress);
 
                 if (allowance < BigInt(depositTx.overrides.value)) {
-                    console.info("CRO allowance amount is low", "allowance:", allowance, "tx-amount:", transaction.amount, "total cost:", depositTx.overrides.value);
+                    console.info("CRO allowance amount is low:", "allowance:", allowance, "tx-amount:", transaction.amount, "total cost:", depositTx.overrides.value);
                     console.info("Sending CRO approve tx");
                     const approveTx = await CRO.approve(contractAddress, transaction.amount);
                     await approveTx.wait(); 
