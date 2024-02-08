@@ -390,7 +390,8 @@ describe("Wallet", () => {
             const result = await wallet.getRequestExecuteTx({
                 contractAddress: await provider.getMainContractAddress(),
                 calldata: "0x",
-                l2Value: 7_000_000_000,
+                l2Value: 7000000000,
+                amount: ""
             });
             expect(result).not.to.be.null;
         });
@@ -401,7 +402,8 @@ describe("Wallet", () => {
             const result = await wallet.estimateGasRequestExecute({
                 contractAddress: await provider.getMainContractAddress(),
                 calldata: "0x",
-                l2Value: 7_000_000_000,
+                l2Value: 7000000000,
+                amount: ""
             });
             expect(result).to.be.equal(BigInt(124_299));
         });
@@ -416,7 +418,8 @@ describe("Wallet", () => {
                 contractAddress: await provider.getMainContractAddress(),
                 calldata: "0x",
                 l2Value: amount,
-                l2GasLimit: 900_000,
+                l2GasLimit: 900000,
+                amount: ""
             });
             const result = await tx.wait();
             const l2BalanceAfterExecution = await wallet.getBalance();
