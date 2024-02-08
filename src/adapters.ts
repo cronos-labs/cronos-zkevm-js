@@ -24,6 +24,7 @@ import {
     scaleGasLimit,
     undoL1ToL2Alias,
     NONCE_HOLDER_ADDRESS,
+    L2_ETH_TOKEN_ADDRESS,
 } from "./utils";
 import {
     IERC20__factory,
@@ -229,8 +230,6 @@ export function AdapterL1<TBase extends Constructor<TxSender>>(Base: TBase) {
             customBridgeData?: BytesLike;
         }): Promise<PriorityOpResponse> {
             const depositTx = await this.getDepositTx(transaction);
-
-            console.debug("depositTx", depositTx);
 
             if (transaction.token == ETH_ADDRESS) {
                 const baseGasLimit = await this.estimateGasRequestExecute(depositTx);
@@ -663,6 +662,17 @@ export function AdapterL1<TBase extends Constructor<TxSender>>(Base: TBase) {
                 const contractAddress = await this._providerL2().getMainContractAddress();
                 const zksync = IZkSync__factory.connect(contractAddress, this._signerL1());
 
+                return await zksync.finalizeEthWithdrawal(
+                    l1BatchNumber as BigNumberish,
+                    l2MessageIndex as BigNumberish,
+                    l2TxNumberInBlock as BigNumberish,
+                    message,
+                    proof,
+                    overrides ?? {},
+                );
+            } else if (L2_ETH_TOKEN_ADDRESS == sender.toLowerCase()) {
+                const contractAddress = await this._providerL2().getMainContractAddress();
+                const zksync = IZkSync__factory.connect(contractAddress, this._signerL1());
                 return await zksync.finalizeEthWithdrawal(
                     l1BatchNumber as BigNumberish,
                     l2MessageIndex as BigNumberish,

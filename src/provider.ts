@@ -328,6 +328,17 @@ export function JsonRpcApiProvider<TBase extends Constructor<ethers.JsonRpcApiPr
 
                 const ethL2Token = IEthToken__factory.connect(L2_ETH_TOKEN_ADDRESS, this);
                 return ethL2Token.withdraw.populateTransaction(tx.to as Address, tx.overrides);
+            } else if (await this.isBaseTokenAddress(tx.token)) {
+                if (!tx.overrides.value) {
+                    tx.overrides.value = tx.amount;
+                }
+                const passedValue = BigInt(tx.overrides.value);
+                if (passedValue != BigInt(tx.amount)) {
+                    throw new Error("The tx.value is not equal to the value withdrawn");
+                }
+
+                const ethL2Token = IEthToken__factory.connect(L2_ETH_TOKEN_ADDRESS, this);
+                return ethL2Token.withdraw.populateTransaction(tx.to as Address, tx.overrides);
             }
 
             if (tx.bridgeAddress == null) {
@@ -379,7 +390,13 @@ export function JsonRpcApiProvider<TBase extends Constructor<ethers.JsonRpcApiPr
             tx.overrides ??= {};
             tx.overrides.from ??= tx.from;
 
-            if (tx.token == null || (tx.token == ETH_ADDRESS && (await this.checkBridgeWETHAllowed()))) {
+            if (tx.token == null || (tx.token == ETH_ADDRESS && this.checkBridgeWETHAllowed())) {
+                return {
+                    ...tx.overrides,
+                    to: tx.to,
+                    value: tx.amount,
+                };
+            } else if (await this.isBaseTokenAddress(tx.token)) {
                 return {
                     ...tx.overrides,
                     to: tx.to,
