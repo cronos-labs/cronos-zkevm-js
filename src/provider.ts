@@ -15,15 +15,11 @@ import {
     JsonRpcPayload,
     resolveProperties,
     FetchRequest,
-    AddressLike,
 } from "ethers";
 import {
     IERC20__factory,
     IEthToken__factory,
-    IL1Bridge,
-    IL2Bridge,
     IL2Bridge__factory,
-    IZkSync__factory,
 } from "../typechain";
 import {
     Address,
@@ -142,6 +138,9 @@ export function JsonRpcApiProvider<TBase extends Constructor<ethers.JsonRpcApiPr
             if (tokenAddress == null || isETH(tokenAddress)) {
                 // requesting ETH balance
                 return await super.getBalance(address, blockTag);
+            } else if (await this.isBaseTokenAddress(tokenAddress)) {
+                // requesting base token balance
+                return await super.getBalance(address, blockTag);
             } else {
                 try {
                     let token = IERC20__factory.connect(tokenAddress, this);
@@ -152,12 +151,15 @@ export function JsonRpcApiProvider<TBase extends Constructor<ethers.JsonRpcApiPr
             }
         }
 
-        async l2TokenAddress(token: Address): Promise<string> {
+        async l2TokenAddress(token: Address): Promise<Address> {
             if (token == ETH_ADDRESS) {
                 return ETH_ADDRESS;
-            } else {
+            } else if (await this.isBaseTokenAddress(token)) {
+                // baseToken doesn't have a token address
+                return "0x";
+            }else {
                 const bridgeAddresses = await this.getDefaultBridgeAddresses();
-                if (await this.checkBridgeWETHAllowed()) {
+                if (bridgeAddresses.wethL2 != null) {
                     const l2WethBridge = IL2Bridge__factory.connect(
                         bridgeAddresses.wethL2 as string,
                         this,
@@ -169,7 +171,6 @@ export function JsonRpcApiProvider<TBase extends Constructor<ethers.JsonRpcApiPr
                         }
                     } catch (e) {}
                 }
-
                 const erc20Bridge = IL2Bridge__factory.connect(bridgeAddresses.erc20L2!, this);
                 return await erc20Bridge.l2TokenAddress(token);
             }
@@ -178,11 +179,11 @@ export function JsonRpcApiProvider<TBase extends Constructor<ethers.JsonRpcApiPr
         async l1TokenAddress(token: Address): Promise<string> {
             if (token == ETH_ADDRESS) {
                 return ETH_ADDRESS;
-            } else if (token == (await this.baseTokenAddress())) {
+            } else if (token == this.contractAddresses().baseToken) {
                 return token;
             } else {
                 const bridgeAddresses = await this.getDefaultBridgeAddresses();
-                if (await this.checkBridgeWETHAllowed()) {
+                if (bridgeAddresses.wethL2 != null) {
                     const l2WethBridge = IL2Bridge__factory.connect(
                         bridgeAddresses.wethL2 as string,
                         this,
@@ -238,25 +239,20 @@ export function JsonRpcApiProvider<TBase extends Constructor<ethers.JsonRpcApiPr
         }
 
         async getDefaultBridgeAddresses() {
-            const isBridgeWETHAllowed = await this.checkBridgeWETHAllowed();
             if (!this.contractAddresses().erc20BridgeL1) {
                 let addresses = await this.send("zks_getBridgeContracts", []);
                 this.contractAddresses().erc20BridgeL1 = addresses.l1Erc20DefaultBridge;
                 this.contractAddresses().erc20BridgeL2 = addresses.l2Erc20DefaultBridge;
-                if (isBridgeWETHAllowed) {
-                    this.contractAddresses().wethBridgeL1 = addresses.l1WethBridge;
-                    this.contractAddresses().wethBridgeL2 = addresses.l2WethBridge;
-                }
+                this.contractAddresses().wethBridgeL1 = addresses.l1WethBridge;
+                this.contractAddresses().wethBridgeL2 = addresses.l2WethBridge;
+                this.contractAddresses().baseToken = addresses.baseTokenAddr;
             }
             return {
                 erc20L1: this.contractAddresses().erc20BridgeL1,
                 erc20L2: this.contractAddresses().erc20BridgeL2,
-                wethL1: isBridgeWETHAllowed
-                    ? this.contractAddresses().wethBridgeL1
-                    : (null as unknown as string),
-                wethL2: isBridgeWETHAllowed
-                    ? this.contractAddresses().wethBridgeL2
-                    : (null as unknown as string),
+                wethL1: this.contractAddresses().wethBridgeL1,
+                wethL2: this.contractAddresses().wethBridgeL2,
+                baseToken: this.contractAddresses().baseToken
             };
         }
 
@@ -321,8 +317,7 @@ export function JsonRpcApiProvider<TBase extends Constructor<ethers.JsonRpcApiPr
             tx.overrides ??= {};
             tx.overrides.from ??= tx.from;
 
-            const isBridgeWETHAllowed = await this.checkBridgeWETHAllowed();
-            if (isETH(tx.token) && isBridgeWETHAllowed) {
+            if (isETH(tx.token) && this._bridgeWETHAllowed) {
                 if (!tx.overrides.value) {
                     tx.overrides.value = tx.amount;
                 }
@@ -342,7 +337,7 @@ export function JsonRpcApiProvider<TBase extends Constructor<ethers.JsonRpcApiPr
             if (tx.bridgeAddress == null) {
                 const bridgeAddresses = await this.getDefaultBridgeAddresses();
                 let l1WethToken = ethers.ZeroAddress;
-                if (isBridgeWETHAllowed) {
+                if (bridgeAddresses.wethL2 != null) {
                     const l2WethBridge = IL2Bridge__factory.connect(
                         bridgeAddresses.wethL2 as string,
                         this,
@@ -579,20 +574,21 @@ export function JsonRpcApiProvider<TBase extends Constructor<ethers.JsonRpcApiPr
             return result;
         }
 
-        async baseTokenAddress(): Promise<string> {
+        async getBaseTokenAddress(): Promise<string> {
             if (!this.contractAddresses().baseToken) {
-                const zkSyncContractAddress = await this.getMainContractAddress();
-                const zkSync = IZkSync__factory.connect(zkSyncContractAddress, this);
-                this.contractAddresses().baseToken = await zkSync.baseTokenAddress();
+                await this.getDefaultBridgeAddresses();
             }
-
-            return this.contractAddresses().baseToken as string;
+            return this.contractAddresses().baseToken;
         }
 
-        async checkBridgeWETHAllowed(): Promise<boolean> {
+        async isBaseTokenAddress(token: Address): Promise<boolean> {
+            return token.toLowerCase() == await this.getBaseTokenAddress();
+        }
+
+        checkBridgeWETHAllowed(): boolean {
             if (this._bridgeWETHAllowed == undefined) {
-                const baseTokenAddress = await this.baseTokenAddress();
-                this._bridgeWETHAllowed = baseTokenAddress == ethers.ZeroAddress;
+                const baseTokenAddress = this.contractAddresses().baseToken;
+                this._bridgeWETHAllowed = (baseTokenAddress == null || baseTokenAddress == ethers.ZeroAddress);
             }
 
             return this._bridgeWETHAllowed;

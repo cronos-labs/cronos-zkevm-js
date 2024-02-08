@@ -11,7 +11,7 @@ import {
 } from "./types";
 import { Provider } from "./provider";
 import { EIP712Signer } from "./signer";
-import { IERC20__factory, IL1Bridge__factory } from "../typechain";
+import { IERC20__factory, IL1Bridge__factory, IZkSync__factory } from "../typechain";
 
 export * from "./paymaster-utils";
 
@@ -521,7 +521,9 @@ export async function estimateDefaultBridgeDepositL2Gas(
     // and so estimation for the zero address may be smaller than for the sender.
     from ??= ethers.Wallet.createRandom().address;
 
-    if (token == ETH_ADDRESS && (await providerL2.checkBridgeWETHAllowed())) {
+    await providerL2.getMainContractAddress();    
+
+    if (token == ETH_ADDRESS && providerL2._bridgeWETHAllowed) {
         return await providerL2.estimateL1ToL2Execute({
             contractAddress: to,
             gasPerPubdataByte: gasPerPubdataByte,
@@ -529,13 +531,20 @@ export async function estimateDefaultBridgeDepositL2Gas(
             calldata: "0x",
             l2Value: amount,
         });
+    } else if (await providerL2.isBaseTokenAddress(token)) {
+        return await providerL2.estimateL1ToL2Execute({
+            contractAddress: to,
+            gasPerPubdataByte: gasPerPubdataByte,
+            caller: from,
+            calldata: "0x",
+            l2Value: 0,
+        });
     } else {
         let value, l1BridgeAddress, l2BridgeAddress, bridgeData;
         const bridgeAddresses = await providerL2.getDefaultBridgeAddresses();
         let l2WethToken = ethers.ZeroAddress;
 
-        const isBridgeWETHAllowed = await providerL2.checkBridgeWETHAllowed();
-        if (isBridgeWETHAllowed) {
+        if (providerL2._bridgeWETHAllowed) {
             const l1WethBridge = IL1Bridge__factory.connect(
                 bridgeAddresses.wethL1 as string,
                 providerL1,
@@ -546,7 +555,7 @@ export async function estimateDefaultBridgeDepositL2Gas(
             } catch (e) {}
         }
 
-        if (l2WethToken != ethers.ZeroAddress && isBridgeWETHAllowed) {
+        if (l2WethToken != ethers.ZeroAddress && providerL2._bridgeWETHAllowed) {
             value = amount;
             l1BridgeAddress = bridgeAddresses.wethL1;
             l2BridgeAddress = bridgeAddresses.wethL2;
