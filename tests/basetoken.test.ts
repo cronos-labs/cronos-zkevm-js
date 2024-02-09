@@ -4,21 +4,19 @@ import { ethers } from "ethers";
 import { sleep } from "../src/utils";
 import { Address } from "../src/types";
 
-describe("BaseToken", () => {
-    const mnemonic = "stuff slice staff easily soup parent arm payment cotton trade scatter struggle";
-    const mnemonic2 = "test test test test test test test test test test test junk";
+const mnemonic = "stuff slice staff easily soup parent arm payment cotton trade scatter struggle";
+const mnemonic2 = "test test test test test test test test test test test junk";
+const testTimeout = 30_000;
+const provider = Provider.getDefaultProvider(types.Network.Localhost) as Provider;
+const ethProvider = ethers.getDefaultProvider("http://127.0.0.1:8545");
 
+describe("BaseToken", () => {
     let mnemonicWallet = ethers.Wallet.fromPhrase(mnemonic);
     let mnemonicWallet2 = ethers.Wallet.fromPhrase(mnemonic2);
-
-    const provider = Provider.getDefaultProvider(types.Network.Localhost) as Provider;
-    const ethProvider = ethers.getDefaultProvider("http://127.0.0.1:8545");
 
     const wallet = new Wallet(mnemonicWallet.privateKey, provider, ethProvider);
     const wallet2 = new Wallet(mnemonicWallet2.privateKey, provider, ethProvider);
     let BASE_TOKEN_ADDR: Address;
-
-    const testTimeout = 30_000;
 
     before("setup", async function () {
         BASE_TOKEN_ADDR = await wallet.baseTokenAddress();
@@ -29,7 +27,8 @@ describe("BaseToken", () => {
             console.log("wallet address", await wallet.getAddress());
             const l1_balance = await wallet.getBalanceL1(BASE_TOKEN_ADDR);
             console.log("w1_l1_balance: ", ethers.formatEther(l1_balance));
-            console.log("w1_l2_balance: ", await wallet.getBalance(BASE_TOKEN_ADDR));
+            console.log("w1_l2_balance: ", ethers.formatEther(await wallet.getBalance(BASE_TOKEN_ADDR)));
+            console.log("w1_l1_ETH_balance: ", ethers.formatEther(await wallet.getBalanceL1()));
             const deposit_amount = ethers.parseEther("1.0");
             const deposit = await wallet.deposit({
                 token: BASE_TOKEN_ADDR,
@@ -42,6 +41,7 @@ describe("BaseToken", () => {
 
             const l1_balance_new = await wallet.getBalanceL1(BASE_TOKEN_ADDR);
             console.log("w1_l1_balance after deposit: ", ethers.formatEther(l1_balance_new));
+            console.log("w1_l1_ETH_balance after deposit: ", ethers.formatEther(await wallet.getBalanceL1()));
             expect(l1_balance - l1_balance_new).to.be.equal(deposit_amount);
             console.log(
                 "w1_l2_balance after deposit: ",
