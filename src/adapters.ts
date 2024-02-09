@@ -295,6 +295,18 @@ export function AdapterL1<TBase extends Constructor<TxSender>>(Base: TBase) {
                     }
                 }
 
+                // the sender requires to approve base token to be able to proceed estimateGas
+                const CRO = CronosTestnet__factory.connect(
+                    await this.baseTokenAddress(),
+                    this._signerL1(),
+                );
+                const contractAddress = await this._providerL2().getMainContractAddress();
+                let allowance_CRO = await CRO.allowance(this.getAddress(), contractAddress);
+                if (allowance_CRO < BigInt(depositTx.value)) {
+                    const approveTx = await CRO.approve(contractAddress, depositTx.value);
+                    await approveTx.wait();
+                }
+
                 const baseGasLimit = await this._providerL1().estimateGas(depositTx);
                 const gasLimit = scaleGasLimit(baseGasLimit);
 
@@ -437,8 +449,7 @@ export function AdapterL1<TBase extends Constructor<TxSender>>(Base: TBase) {
                     BigNumberish,
                 ] = [to, token, amount, tx.l2GasLimit, tx.gasPerPubdataByte, refundRecipient, l1Amount];
 
-                //overrides.value ??= baseCost + BigInt(operatorTip);
-                await checkBaseCost(baseCost, l1Amount);
+                overrides.value ??= l1Amount;
                 overrides.from ??= await this.getAddress();
 
                 let l2WethToken = ethers.ZeroAddress;

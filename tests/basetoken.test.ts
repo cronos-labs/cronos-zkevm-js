@@ -3,6 +3,8 @@ import { Provider, types, Wallet } from "../src";
 import { ethers } from "ethers";
 import { sleep } from "../src/utils";
 import { Address } from "../src/types";
+import { CronosTestnet__factory, IERC20__factory } from "../typechain";
+import { TOKENS } from "./const";
 
 const mnemonic = "stuff slice staff easily soup parent arm payment cotton trade scatter struggle";
 const mnemonic2 = "test test test test test test test test test test test junk";
@@ -41,7 +43,10 @@ describe("BaseToken", () => {
 
             const l1_balance_new = await wallet.getBalanceL1(BASE_TOKEN_ADDR);
             console.log("w1_l1_balance after deposit: ", ethers.formatEther(l1_balance_new));
-            console.log("w1_l1_ETH_balance after deposit: ", ethers.formatEther(await wallet.getBalanceL1()));
+            console.log(
+                "w1_l1_ETH_balance after deposit: ",
+                ethers.formatEther(await wallet.getBalanceL1()),
+            );
             expect(l1_balance - l1_balance_new).to.be.equal(deposit_amount);
             console.log(
                 "w1_l2_balance after deposit: ",
@@ -109,5 +114,51 @@ describe("BaseToken", () => {
 
             expect(l1_balance_new - l1_balance).to.be.equal(withdraw_amount);
         }).timeout(testTimeout);
+    });
+});
+
+describe("ERC20", () => {
+    const DAI_ADDRESS = "0x17787f7A5b80512CfE552882B7a55B868a185995";
+
+    let mnemonicWallet = ethers.Wallet.fromPhrase(mnemonic);
+    let mnemonicWallet2 = ethers.Wallet.fromPhrase(mnemonic2);
+
+    const wallet = new Wallet(mnemonicWallet.privateKey, provider, ethProvider);
+    const wallet2 = new Wallet(mnemonicWallet2.privateKey, provider, ethProvider);
+    let BASE_TOKEN_ADDR: Address;
+    let L2_TOKEN_ADDR: Address;
+
+    before("setup", async function () {
+        BASE_TOKEN_ADDR = await wallet.baseTokenAddress();
+        L2_TOKEN_ADDR = await provider.l2TokenAddress(DAI_ADDRESS);
+    });
+
+    describe("#deposit()", async () => {
+        it("deposit DAI token on L2", async () => {
+            const l1_DAI_balance = await wallet.getBalanceL1(DAI_ADDRESS);
+            console.log("w1_l1_DAI_balance: ", ethers.formatEther(l1_DAI_balance));
+            const l2_DAI_balance = await wallet.getBalance(L2_TOKEN_ADDR);
+            console.log("w1_l2_DAI_balance: ", ethers.formatEther(l2_DAI_balance));
+
+            const deposit_amount = ethers.parseEther("0.001");
+
+            const priorityOpResponse = await wallet.deposit({
+                token: DAI_ADDRESS,
+                to: await wallet.getAddress(),
+                amount: deposit_amount,
+                approveERC20: true,
+                refundRecipient: await wallet.getAddress(),
+            });
+            const receipt = await priorityOpResponse.waitFinalize();
+            expect(receipt).not.to.be.null;
+
+            const l1_DAI_balance_new = await wallet.getBalanceL1(DAI_ADDRESS);
+            console.log("w1_l1_DAI_balance after deposit: ", ethers.formatEther(l1_DAI_balance_new));
+            const l2_DAI_balance_new = await wallet.getBalance(L2_TOKEN_ADDR);
+            console.log("w1_l2_DAI_balance after deposit: ", ethers.formatEther(l2_DAI_balance_new));
+
+            expect(l1_DAI_balance - l1_DAI_balance_new).to.be.equal(deposit_amount);
+            expect(l2_DAI_balance_new - l2_DAI_balance).to.be.equal(deposit_amount);
+        }).timeout(testTimeout * 2);
     });
 });
