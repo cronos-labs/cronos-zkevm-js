@@ -151,8 +151,7 @@ export function JsonRpcApiProvider<TBase extends Constructor<ethers.JsonRpcApiPr
             if (token == ETH_ADDRESS) {
                 return ETH_ADDRESS;
             } else if (await this.isBaseTokenAddress(token)) {
-                // baseToken doesn't have a token address
-                return "0x";
+                return ETH_ADDRESS;
             } else {
                 const bridgeAddresses = await this.getDefaultBridgeAddresses();
                 if (bridgeAddresses.wethL2 != null) {
@@ -176,6 +175,13 @@ export function JsonRpcApiProvider<TBase extends Constructor<ethers.JsonRpcApiPr
             if (token == ETH_ADDRESS) {
                 return ETH_ADDRESS;
             } else if (token == this.contractAddresses().baseToken) {
+                // check if base token is ETH_ADDRESS or not, if it's not then return base token address, otherwise return ETH_ADDRESS
+                if (
+                    !this.contractAddresses().baseToken ||
+                    ETH_ADDRESS == this.contractAddresses().baseToken
+                ) {
+                    return ETH_ADDRESS;
+                }
                 return token;
             } else {
                 const bridgeAddresses = await this.getDefaultBridgeAddresses();

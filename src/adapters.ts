@@ -44,6 +44,7 @@ import {
     FullDepositFee,
     MessageProof,
     PriorityOpResponse,
+    Token,
     TransactionResponse,
 } from "./types";
 
@@ -245,15 +246,15 @@ export function AdapterL1<TBase extends Constructor<TxSender>>(Base: TBase) {
 
                 let allowance = await CRO.allowance(this.getAddress(), contractAddress);
 
-                if (allowance < BigInt(depositTx.overrides.value)) {
+                if (allowance < BigInt(depositTx.amount)) {
                     console.info(
                         "CRO allowance amount is low:",
                         "allowance:",
-                        allowance,
+                        ethers.formatEther(allowance),
                         "tx-amount:",
-                        transaction.amount,
+                        ethers.formatEther(transaction.amount),
                         "total cost:",
-                        depositTx.overrides.value,
+                        ethers.formatEther(depositTx.overrides.value),
                     );
                     console.info("Sending CRO approve tx");
                     const approveTx = await CRO.approve(contractAddress, transaction.amount);
@@ -400,7 +401,7 @@ export function AdapterL1<TBase extends Constructor<TxSender>>(Base: TBase) {
 
             const baseCost = await zksyncContract.l2TransactionBaseCost(
                 // @ts-ignore
-                await gasPriceForEstimation,
+                gasPriceForEstimation,
                 tx.l2GasLimit,
                 tx.gasPerPubdataByte,
             );
@@ -416,13 +417,11 @@ export function AdapterL1<TBase extends Constructor<TxSender>>(Base: TBase) {
                     ...tx,
                 };
             } else if (token.toLowerCase() == (await this.baseTokenAddress())) {
-                overrides.value ??= baseCost + BigInt(operatorTip) + BigInt(amount);
+                overrides.value ??= baseCost + BigInt(operatorTip);
                 return {
                     contractAddress: to,
                     calldata: "0x",
                     l2Value: 0,
-                    // For some reason typescript can not deduce that we've already set the tx.l2GasLimit
-                    l2GasLimit: tx.l2GasLimit!,
                     ...tx,
                 };
             } else {
