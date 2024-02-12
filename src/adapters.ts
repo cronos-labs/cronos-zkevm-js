@@ -9,7 +9,6 @@ import {
 import { Provider } from "./provider";
 import {
     BOOTLOADER_FORMAL_ADDRESS,
-    checkBaseCost,
     DEFAULT_GAS_PER_PUBDATA_LIMIT,
     estimateCustomBridgeDepositL2Gas,
     estimateDefaultBridgeDepositL2Gas,
@@ -44,12 +43,11 @@ import {
     FullDepositFee,
     MessageProof,
     PriorityOpResponse,
-    Token,
     TransactionResponse,
 } from "./types";
 
 import { L2TransactionStruct } from "../typechain/IZkSync";
-import { CronosTestnet, CronosTestnetInterface } from "../typechain/CronosTestnet";
+import { CronosTestnet } from "../typechain/CronosTestnet";
 
 type Constructor<T = {}> = new (...args: any[]) => T;
 
@@ -147,6 +145,8 @@ export function AdapterL1<TBase extends Constructor<TxSender>>(Base: TBase) {
         async l2TokenAddress(token: Address): Promise<string> {
             if (token == ETH_ADDRESS) {
                 return ETH_ADDRESS;
+            } else if (token.toLowerCase() == (await this.baseTokenAddress())) {
+                return ETH_ADDRESS;
             }
 
             const bridgeContracts = await this.getL1BridgeContracts();
@@ -197,6 +197,16 @@ export function AdapterL1<TBase extends Constructor<TxSender>>(Base: TBase) {
             }
 
             return await erc20contract.approve(bridgeAddress as Address, amount, overrides);
+        }
+
+        async approveBaseToken(amount: BigNumberish): Promise<ethers.ContractTransactionReceipt> {
+            const CRO = CronosTestnet__factory.connect(await this.baseTokenAddress(), this._signerL1());
+            const contractAddress = await this._providerL2().getMainContractAddress();
+
+            console.info("Sending CRO approve tx");
+            const approveTx = await CRO.approve(contractAddress, amount);
+            const receipt = await approveTx.wait();
+            return receipt;
         }
 
         async getBaseCost(params: {
@@ -333,10 +343,7 @@ export function AdapterL1<TBase extends Constructor<TxSender>>(Base: TBase) {
             const depositTx = await this.getDepositTx(transaction);
 
             let baseGasLimit: bigint;
-            if (
-                transaction.token == ETH_ADDRESS ||
-                transaction.token == (await this.baseTokenAddress())
-            ) {
+            if (transaction.token == ETH_ADDRESS) {
                 baseGasLimit = await this.estimateGasRequestExecute(depositTx);
             } else {
                 baseGasLimit = await this._providerL1().estimateGas(depositTx);
@@ -484,8 +491,7 @@ export function AdapterL1<TBase extends Constructor<TxSender>>(Base: TBase) {
 
             tx.overrides ??= {};
             await insertGasPrice(this._providerL1(), tx.overrides);
-            const gasPriceForMessages =
-                (await tx.overrides.maxFeePerGas) || (await tx.overrides.gasPrice);
+            const gasPriceForMessages = tx.overrides.maxFeePerGas || tx.overrides.gasPrice;
 
             tx.to ??= await this.getAddress();
             tx.gasPerPubdataByte ??= REQUIRED_L1_TO_L2_GAS_PER_PUBDATA_LIMIT;
@@ -531,13 +537,12 @@ export function AdapterL1<TBase extends Constructor<TxSender>>(Base: TBase) {
                 tx.gasPerPubdataByte,
             );
 
-            //const selfBalanceETH = await this.getBalanceL1();
             const baseTokenAddress = await zksyncContract.baseTokenAddress();
-            const selfBalanceCRO = await this.getBalanceL1(baseTokenAddress);
+            const selfBalanceBaseToken = await this.getBalanceL1(baseTokenAddress);
 
             // We could zero in, because the final fee will anyway be bigger than
-            if (baseCost >= selfBalanceCRO + dummyAmount) {
-                const recommendedETHBalance =
+            if (baseCost >= selfBalanceBaseToken + dummyAmount) {
+                const recommendedBaseTokenBalance =
                     BigInt(
                         (await this.checkBridgeWETHAllowed()) && tx.token == ETH_ADDRESS
                             ? L1_RECOMMENDED_MIN_ETH_DEPOSIT_GAS_LIMIT
@@ -545,7 +550,7 @@ export function AdapterL1<TBase extends Constructor<TxSender>>(Base: TBase) {
                     ) *
                         BigInt(gasPriceForMessages as BigNumberish) +
                     baseCost;
-                const formattedRecommendedBalance = ethers.formatEther(recommendedETHBalance);
+                const formattedRecommendedBalance = ethers.formatEther(recommendedBaseTokenBalance);
                 throw new Error(
                     `Not enough balance for deposit. Under the provided gas price, the recommended balance to perform a deposit is ${formattedRecommendedBalance} CRO`,
                 );
@@ -586,12 +591,10 @@ export function AdapterL1<TBase extends Constructor<TxSender>>(Base: TBase) {
             };
 
             if (tx.overrides.gasPrice) {
-                fullCost.gasPrice = BigInt(await tx.overrides.gasPrice);
+                fullCost.gasPrice = BigInt(tx.overrides.gasPrice);
             } else {
-                fullCost.maxFeePerGas = BigInt((await tx.overrides.maxFeePerGas) as bigint);
-                fullCost.maxPriorityFeePerGas = BigInt(
-                    (await tx.overrides.maxPriorityFeePerGas) as bigint,
-                );
+                fullCost.maxFeePerGas = BigInt(tx.overrides.maxFeePerGas as bigint);
+                fullCost.maxPriorityFeePerGas = BigInt(tx.overrides.maxPriorityFeePerGas as bigint);
             }
 
             return fullCost;
@@ -857,7 +860,7 @@ export function AdapterL1<TBase extends Constructor<TxSender>>(Base: TBase) {
             const gasPriceForEstimation = overrides.maxFeePerGas || overrides.gasPrice;
 
             const baseCost = await this.getBaseCost({
-                gasPrice: (await gasPriceForEstimation) as BigNumberish,
+                gasPrice: gasPriceForEstimation as BigNumberish,
                 gasPerPubdataByte,
                 gasLimit: l2GasLimit,
             });

@@ -3,8 +3,6 @@ import { Provider, types, Wallet } from "../src";
 import { ethers } from "ethers";
 import { sleep } from "../src/utils";
 import { Address } from "../src/types";
-import { CronosTestnet__factory, IERC20__factory } from "../typechain";
-import { TOKENS } from "./const";
 
 const mnemonic = "stuff slice staff easily soup parent arm payment cotton trade scatter struggle";
 const mnemonic2 = "test test test test test test test test test test test junk";
@@ -22,6 +20,20 @@ describe("BaseToken", () => {
 
     before("setup", async function () {
         BASE_TOKEN_ADDR = await wallet.baseTokenAddress();
+    });
+
+    describe("#depositFee()", async () => {
+        it("should estimates the base token deposit fee", async () => {
+            const deposit_amount = ethers.parseEther("1");
+            const tx = {
+                token: BASE_TOKEN_ADDR,
+                amount: deposit_amount,
+            };
+
+            const depositTx = await wallet.getDepositTx(tx);
+            const fee = await wallet.getFullRequiredDepositFee(depositTx);
+            expect(fee).not.to.be.null;
+        }).timeout(testTimeout);
     });
 
     describe("#deposit()", async () => {
@@ -118,7 +130,7 @@ describe("BaseToken", () => {
 });
 
 describe("ERC20", () => {
-    const DAI_ADDRESS = "0x17787f7A5b80512CfE552882B7a55B868a185995";
+    const DAI_ADDRESS = "0x17787f7A5b80512CfE552882B7a55B868a185995"; // the address be defined in the deployed test token list
 
     let mnemonicWallet = ethers.Wallet.fromPhrase(mnemonic);
     let mnemonicWallet2 = ethers.Wallet.fromPhrase(mnemonic2);
@@ -236,6 +248,22 @@ describe("ERC20", () => {
             expect(w1_l2_DAI_balance - w1_l2_DAI_balance_new).to.be.equal(withdraw_amount);
             expect(w1_l1_DAI_balance_new - w1_l1_DAI_balance).to.be.equal(withdraw_amount);
             expect(w1_l2_base_token_balance - w1_l2_base_token_balance_new > BigInt(0)).to.be.true;
+        }).timeout(testTimeout);
+    });
+
+    describe("#depositFee()", async () => {
+        it("should estimates the DAI token deposit fee", async () => {
+            const deposit_amount = ethers.parseEther("1");
+            const tx = {
+                token: DAI_ADDRESS,
+                amount: deposit_amount,
+                to: await wallet.getAddress(),
+                approveERC20: true,
+                refundRecipient: await wallet.getAddress(),
+            };
+
+            const fee = await wallet.getFullRequiredDepositFee(tx);
+            expect(fee).not.to.be.null;
         }).timeout(testTimeout);
     });
 });
