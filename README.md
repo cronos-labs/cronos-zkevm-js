@@ -113,6 +113,10 @@ const withdrawal = await wallet.withdraw({
 });
 ```
 
+### Base token examples
+
+please check `tests\basetoken.test.ts`
+
 ## 🤝 Contributing
 
 We welcome contributions from the community! If you're interested in contributing to the zksync2-js JavaScript SDK,
