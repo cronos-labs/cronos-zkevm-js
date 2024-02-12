@@ -126,21 +126,21 @@ describe("ERC20", () => {
     const wallet = new Wallet(mnemonicWallet.privateKey, provider, ethProvider);
     const wallet2 = new Wallet(mnemonicWallet2.privateKey, provider, ethProvider);
     let BASE_TOKEN_ADDR: Address;
-    let L2_TOKEN_ADDR: Address;
+    let L2_ERC20_ADDR: Address;
 
     before("setup", async function () {
         BASE_TOKEN_ADDR = await wallet.baseTokenAddress();
-        L2_TOKEN_ADDR = await provider.l2TokenAddress(DAI_ADDRESS);
+        L2_ERC20_ADDR = await provider.l2TokenAddress(DAI_ADDRESS);
     });
 
     describe("#deposit()", async () => {
         it("deposit DAI token on L2", async () => {
             const l1_DAI_balance = await wallet.getBalanceL1(DAI_ADDRESS);
             console.log("w1_l1_DAI_balance: ", ethers.formatEther(l1_DAI_balance));
-            const l2_DAI_balance = await wallet.getBalance(L2_TOKEN_ADDR);
+            const l2_DAI_balance = await wallet.getBalance(L2_ERC20_ADDR);
             console.log("w1_l2_DAI_balance: ", ethers.formatEther(l2_DAI_balance));
 
-            const deposit_amount = ethers.parseEther("0.001");
+            const deposit_amount = ethers.parseEther("2");
 
             const priorityOpResponse = await wallet.deposit({
                 token: DAI_ADDRESS,
@@ -154,11 +154,88 @@ describe("ERC20", () => {
 
             const l1_DAI_balance_new = await wallet.getBalanceL1(DAI_ADDRESS);
             console.log("w1_l1_DAI_balance after deposit: ", ethers.formatEther(l1_DAI_balance_new));
-            const l2_DAI_balance_new = await wallet.getBalance(L2_TOKEN_ADDR);
+            const l2_DAI_balance_new = await wallet.getBalance(L2_ERC20_ADDR);
             console.log("w1_l2_DAI_balance after deposit: ", ethers.formatEther(l2_DAI_balance_new));
 
             expect(l1_DAI_balance - l1_DAI_balance_new).to.be.equal(deposit_amount);
             expect(l2_DAI_balance_new - l2_DAI_balance).to.be.equal(deposit_amount);
         }).timeout(testTimeout * 2);
+    });
+
+    describe("#transfer()", async () => {
+        it("should transfer L2 ERC20 balance", async () => {
+            const w1_l2_DAI_balance = await wallet.getBalance(L2_ERC20_ADDR);
+            console.log("w1_l2_DAI_balance: ", ethers.formatEther(w1_l2_DAI_balance));
+            const w2_l2_DAI_balance = await wallet2.getBalance(L2_ERC20_ADDR);
+            console.log("w2_l2_DAI_balance: ", ethers.formatEther(w2_l2_DAI_balance));
+            const w1_l2_base_token_balance = await wallet.getBalance(BASE_TOKEN_ADDR);
+            console.log("w2_l2_BASE_TOKEN_balance: ", ethers.formatEther(w1_l2_base_token_balance));
+
+            const transfer_amount = ethers.parseEther("1");
+
+            const transfer = await wallet.transfer({
+                token: L2_ERC20_ADDR,
+                to: await wallet2.getAddress(),
+                amount: transfer_amount,
+            });
+            expect(transfer).not.to.be.null;
+
+            while ((await transfer.confirmations()) < 1) {
+                await sleep(100);
+            }
+
+            const w1_l2_DAI_balance_new = await wallet.getBalance(L2_ERC20_ADDR);
+            console.log("w1_l2_DAI_balance after deposit: ", ethers.formatEther(w1_l2_DAI_balance_new));
+            const w2_l2_DAI_balance_new = await wallet2.getBalance(L2_ERC20_ADDR);
+            console.log("w2_l2_DAI_balance after deposit:", ethers.formatEther(w2_l2_DAI_balance_new));
+            const w1_l2_base_token_balance_new = await wallet.getBalance(BASE_TOKEN_ADDR);
+            console.log(
+                "w2_l2_BASE_TOKEN_balance: after deposit",
+                ethers.formatEther(w1_l2_base_token_balance_new),
+            );
+
+            expect(w1_l2_DAI_balance - w1_l2_DAI_balance_new).to.be.equal(transfer_amount);
+            expect(w2_l2_DAI_balance_new - w2_l2_DAI_balance).to.be.equal(transfer_amount);
+            expect(w1_l2_base_token_balance - w1_l2_base_token_balance_new > BigInt(0)).to.be.true;
+        }).timeout(testTimeout);
+    });
+
+    describe("#withdraw()", async () => {
+        it("should withdraw L2 ERC20 balance", async () => {
+            const w1_l2_DAI_balance = await wallet.getBalance(L2_ERC20_ADDR);
+            console.log("w1_l2_DAI_balance: ", ethers.formatEther(w1_l2_DAI_balance));
+            const w1_l1_DAI_balance = await wallet.getBalanceL1(DAI_ADDRESS);
+            console.log("w1_l1_DAI_balance: ", ethers.formatEther(w1_l1_DAI_balance));
+            const w1_l2_base_token_balance = await wallet.getBalance(BASE_TOKEN_ADDR);
+            console.log("w2_l2_BASE_TOKEN_balance: ", ethers.formatEther(w1_l2_base_token_balance));
+
+            const withdraw_amount = ethers.parseEther("1");
+            expect(w1_l2_DAI_balance > withdraw_amount).to.be.true;
+
+            const withdrawTx = await wallet.withdraw({
+                token: L2_ERC20_ADDR,
+                amount: withdraw_amount,
+            });
+            expect(withdrawTx).not.to.be.null;
+
+            await withdrawTx.waitFinalize();
+            const finalizeWithdrawTx = await wallet.finalizeWithdrawal(withdrawTx.hash);
+            const result = await finalizeWithdrawTx.wait();
+            expect(result).not.to.be.null;
+
+            const w1_l2_DAI_balance_new = await wallet.getBalance(L2_ERC20_ADDR);
+            console.log("w1_l2_DAI_balance after deposit: ", ethers.formatEther(w1_l2_DAI_balance_new));
+            const w1_l1_DAI_balance_new = await wallet.getBalanceL1(DAI_ADDRESS);
+            console.log("w1_l1_DAI_balance after deposit:", ethers.formatEther(w1_l1_DAI_balance_new));
+            const w1_l2_base_token_balance_new = await wallet.getBalance(BASE_TOKEN_ADDR);
+            console.log(
+                "w2_l2_BASE_TOKEN_balance: after deposit",
+                ethers.formatEther(w1_l2_base_token_balance_new),
+            );
+
+            expect(w1_l2_DAI_balance - w1_l2_DAI_balance_new).to.be.equal(withdraw_amount);
+            expect(w1_l1_DAI_balance_new - w1_l1_DAI_balance).to.be.equal(withdraw_amount);
+            expect(w1_l2_base_token_balance - w1_l2_base_token_balance_new > BigInt(0)).to.be.true;
+        }).timeout(testTimeout);
     });
 });
