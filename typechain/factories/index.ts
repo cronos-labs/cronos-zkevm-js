@@ -2,6 +2,7 @@
 /* tslint:disable */
 /* eslint-disable */
 export { ContractDeployer__factory } from "./ContractDeployer__factory";
+export { CronosTestnet__factory } from "./CronosTestnet__factory";
 export { IAllowList__factory } from "./IAllowList__factory";
 export { IERC1271__factory } from "./IERC1271__factory";
 export { IERC20__factory } from "./IERC20__factory";

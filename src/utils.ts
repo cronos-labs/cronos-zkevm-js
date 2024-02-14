@@ -11,7 +11,7 @@ import {
 } from "./types";
 import { Provider } from "./provider";
 import { EIP712Signer } from "./signer";
-import { IERC20__factory, IL1Bridge__factory } from "../typechain";
+import { IERC20__factory, IL1Bridge__factory, IZkSync__factory } from "../typechain";
 
 export * from "./paymaster-utils";
 
@@ -31,7 +31,6 @@ export const CONTRACT_DEPLOYER_ADDRESS = "0x000000000000000000000000000000000000
 export const L1_MESSENGER_ADDRESS = "0x0000000000000000000000000000000000008008";
 export const L2_ETH_TOKEN_ADDRESS = "0x000000000000000000000000000000000000800a";
 export const NONCE_HOLDER_ADDRESS = "0x0000000000000000000000000000000000008003";
-
 export const L1_TO_L2_ALIAS_OFFSET = "0x1111000000000000000000000000000000001111";
 
 export const EIP1271_MAGIC_VALUE = "0x1626ba7e";
@@ -59,14 +58,6 @@ export const DEFAULT_GAS_PER_PUBDATA_LIMIT = 50_000;
 // It is possible to provide practically any gasPerPubdataByte for L1->L2 transactions, since
 // the cost per gas will be adjusted respectively. We will use 800 as a relatively optimal value for now.
 export const REQUIRED_L1_TO_L2_GAS_PER_PUBDATA_LIMIT = 800;
-
-export const ALLOW_BRIDGE_WETH = false;
-
-export function checkBridgeWETHAllowed() {
-    if (!ALLOW_BRIDGE_WETH) {
-        throw new Error(`bridge WETH is not allowed`);
-    }
-}
 
 export function isETH(token: Address) {
     return token.toLowerCase() == ETH_ADDRESS || token.toLowerCase() == L2_ETH_TOKEN_ADDRESS;
@@ -530,8 +521,9 @@ export async function estimateDefaultBridgeDepositL2Gas(
     // and so estimation for the zero address may be smaller than for the sender.
     from ??= ethers.Wallet.createRandom().address;
 
-    if (token == ETH_ADDRESS) {
-        checkBridgeWETHAllowed();
+    await providerL2.getMainContractAddress();
+
+    if (token == ETH_ADDRESS && providerL2._bridgeWETHAllowed) {
         return await providerL2.estimateL1ToL2Execute({
             contractAddress: to,
             gasPerPubdataByte: gasPerPubdataByte,
@@ -539,11 +531,20 @@ export async function estimateDefaultBridgeDepositL2Gas(
             calldata: "0x",
             l2Value: amount,
         });
+    } else if (await providerL2.isBaseTokenAddress(token)) {
+        return await providerL2.estimateL1ToL2Execute({
+            contractAddress: to,
+            gasPerPubdataByte: gasPerPubdataByte,
+            caller: from,
+            calldata: "0x",
+            l2Value: 0,
+        });
     } else {
         let value, l1BridgeAddress, l2BridgeAddress, bridgeData;
         const bridgeAddresses = await providerL2.getDefaultBridgeAddresses();
         let l2WethToken = ethers.ZeroAddress;
-        if (ALLOW_BRIDGE_WETH) {
+
+        if (providerL2._bridgeWETHAllowed) {
             const l1WethBridge = IL1Bridge__factory.connect(
                 bridgeAddresses.wethL1 as string,
                 providerL1,
@@ -554,7 +555,7 @@ export async function estimateDefaultBridgeDepositL2Gas(
             } catch (e) {}
         }
 
-        if (l2WethToken != ethers.ZeroAddress && ALLOW_BRIDGE_WETH) {
+        if (l2WethToken != ethers.ZeroAddress && providerL2._bridgeWETHAllowed) {
             value = amount;
             l1BridgeAddress = bridgeAddresses.wethL1;
             l2BridgeAddress = bridgeAddresses.wethL2;
