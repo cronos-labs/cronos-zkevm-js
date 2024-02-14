@@ -107,7 +107,7 @@ export function JsonRpcApiProvider<TBase extends Constructor<ethers.JsonRpcApiPr
         override async getTransactionReceipt(txHash: string): Promise<TransactionReceipt> {
             while (true) {
                 const receipt = (await super.getTransactionReceipt(txHash)) as TransactionReceipt;
-                if (receipt.blockNumber) {
+                if (receipt && receipt.blockNumber) {
                     return receipt;
                 }
                 await sleep(500);
@@ -671,8 +671,10 @@ export class Provider extends JsonRpcApiProvider(ethers.JsonRpcProvider) {
                 return new Provider("http://localhost:3050");
             case ZkSyncNetwork.Goerli:
                 return new Provider("https://zksync2-testnet.zksync.dev");
+            case ZkSyncNetwork.Sepolia:
+                return new Provider("https://sepolia.era.zksync.dev");
             case ZkSyncNetwork.Mainnet:
-                return new Provider("https://zksync2-mainnet.zksync.io/");
+                return new Provider("https://mainnet.era.zksync.io");
         }
     }
 }

@@ -1,10 +1,12 @@
-# 🚀 zksync2-js JavaScript SDK 🚀
+# 🚀 zksync2-js JavaScript SDK for <a href="https://cronos.org">Cronos zk-Hyperchain</a>🚀
 
 In order to provide easy access to all the features of zkSync Era, the `zksync2-js` JavaScript SDK was created,
 which is made in a way that has an interface very similar to those of [ethers](https://docs.ethers.io/v6/). In
 fact, `ethers` is a peer dependency of our library and most of the objects exported by `zksync2-js` (
 e.g. `Wallet`, `Provider` etc.) inherit from the corresponding `ethers` objects and override only the fields that need
 to be changed.
+
+This version has been tailored to include base token support specifically for utilization within the Cronos zk-Hyperchain.
 
 While most of the existing SDKs should work out of the box, deploying smart contracts or using unique zkSync features,
 like account abstraction, requires providing additional fields to those that Ethereum transactions have by default.
@@ -46,8 +48,8 @@ The complete examples with various use cases are available [here](https://github
 import { Provider, utils, types } from "zksync2-js";
 import { ethers } from "ethers";
 
-const provider = Provider.getDefaultProvider(types.Network.Goerli); // zkSync Era testnet (L2)
-const ethProvider = ethers.getDefaultProvider("goerli"); // goerli testnet (L1)
+const provider = Provider.getDefaultProvider(types.Network.Sepolia); // zkSync Era testnet (L2)
+const ethProvider = ethers.getDefaultProvider("Sepolia"); // Sepolia testnet (L1)
 ```
 
 ### Get the latest block number
@@ -74,7 +76,7 @@ const wallet = new Wallet(PRIVATE_KEY, provider, ethProvider);
 ```ts
 const ethBalance = await wallet.getBalance(); // balance on zkSync Era network
 
-const ethBalanceL1 = await wallet.getBalanceL1(); // balance on goerli network
+const ethBalanceL1 = await wallet.getBalanceL1(); // balance on Sepolia network
 ```
 
 ### Transfer funds
