@@ -2,6 +2,7 @@
 /* tslint:disable */
 /* eslint-disable */
 export type { ContractDeployer } from "./ContractDeployer";
+export type { CronosTestnet } from "./CronosTestnet";
 export type { IAllowList } from "./IAllowList";
 export type { IERC1271 } from "./IERC1271";
 export type { IERC20 } from "./IERC20";
@@ -14,6 +15,7 @@ export type { IPaymasterFlow } from "./IPaymasterFlow";
 export type { IZkSync } from "./IZkSync";
 export * as factories from "./factories";
 export { ContractDeployer__factory } from "./factories/ContractDeployer__factory";
+export { CronosTestnet__factory } from "./factories/CronosTestnet__factory";
 export { IAllowList__factory } from "./factories/IAllowList__factory";
 export { IERC1271__factory } from "./factories/IERC1271__factory";
 export { IERC20__factory } from "./factories/IERC20__factory";

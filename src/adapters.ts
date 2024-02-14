@@ -9,7 +9,6 @@ import {
 import { Provider } from "./provider";
 import {
     BOOTLOADER_FORMAL_ADDRESS,
-    checkBaseCost,
     DEFAULT_GAS_PER_PUBDATA_LIMIT,
     estimateCustomBridgeDepositL2Gas,
     estimateDefaultBridgeDepositL2Gas,
@@ -24,8 +23,7 @@ import {
     scaleGasLimit,
     undoL1ToL2Alias,
     NONCE_HOLDER_ADDRESS,
-    ALLOW_BRIDGE_WETH,
-    checkBridgeWETHAllowed,
+    L2_ETH_TOKEN_ADDRESS,
 } from "./utils";
 import {
     IERC20__factory,
@@ -36,6 +34,7 @@ import {
     INonceHolder__factory,
     IZkSync,
     IZkSync__factory,
+    CronosTestnet__factory,
 } from "../typechain";
 import {
     Address,
@@ -48,6 +47,7 @@ import {
 } from "./types";
 
 import { L2TransactionStruct } from "../typechain/IZkSync";
+import { CronosTestnet } from "../typechain/CronosTestnet";
 
 type Constructor<T = {}> = new (...args: any[]) => T;
 
@@ -71,6 +71,8 @@ export function AdapterL1<TBase extends Constructor<TxSender>>(Base: TBase) {
             throw new Error("Must be implemented by the derived class!");
         }
 
+        _baseTokenAddress?: string;
+
         async getMainContract(): Promise<IZkSync> {
             const address = await this._providerL2().getMainContractAddress();
             return IZkSync__factory.connect(address, this._signerL1());
@@ -80,10 +82,27 @@ export function AdapterL1<TBase extends Constructor<TxSender>>(Base: TBase) {
             const addresses = await this._providerL2().getDefaultBridgeAddresses();
             return {
                 erc20: IL1Bridge__factory.connect(addresses.erc20L1 as string, this._signerL1()),
-                weth: ALLOW_BRIDGE_WETH
+                weth: (await this.checkBridgeWETHAllowed())
                     ? IL1Bridge__factory.connect(addresses.wethL1 as string, this._signerL1())
                     : (null as unknown as IL1Bridge),
             };
+        }
+
+        async getBaseTokenContract(): Promise<CronosTestnet> {
+            return CronosTestnet__factory.connect(await this.baseTokenAddress(), this._signerL1());
+        }
+
+        async baseTokenAddress(): Promise<string> {
+            if (this._baseTokenAddress == undefined) {
+                const zkSyncContract = await this.getMainContract();
+                this._baseTokenAddress = (await zkSyncContract.baseTokenAddress()).toLowerCase();
+            }
+
+            return this._baseTokenAddress;
+        }
+
+        async checkBridgeWETHAllowed(): Promise<boolean> {
+            return (await this.baseTokenAddress()) == ethers.ZeroAddress;
         }
 
         async getBalanceL1(token?: Address, blockTag?: BlockTag): Promise<bigint> {
@@ -104,7 +123,7 @@ export function AdapterL1<TBase extends Constructor<TxSender>>(Base: TBase) {
             if (!bridgeAddress) {
                 const bridgeContracts = await this.getL1BridgeContracts();
                 let l2WethToken = ethers.ZeroAddress;
-                if (ALLOW_BRIDGE_WETH) {
+                if (await this.checkBridgeWETHAllowed()) {
                     try {
                         l2WethToken = await bridgeContracts.weth.l2TokenAddress(token);
                     } catch (e) {}
@@ -126,10 +145,12 @@ export function AdapterL1<TBase extends Constructor<TxSender>>(Base: TBase) {
         async l2TokenAddress(token: Address): Promise<string> {
             if (token == ETH_ADDRESS) {
                 return ETH_ADDRESS;
+            } else if (token.toLowerCase() == (await this.baseTokenAddress())) {
+                return ETH_ADDRESS;
             }
 
             const bridgeContracts = await this.getL1BridgeContracts();
-            if (ALLOW_BRIDGE_WETH) {
+            if (await this.checkBridgeWETHAllowed()) {
                 try {
                     let l2WethToken = ethers.ZeroAddress;
                     l2WethToken = await bridgeContracts.weth.l2TokenAddress(token);
@@ -161,7 +182,7 @@ export function AdapterL1<TBase extends Constructor<TxSender>>(Base: TBase) {
             if (bridgeAddress == null) {
                 const bridgeContracts = await this.getL1BridgeContracts();
                 let l2WethToken = ethers.ZeroAddress;
-                if (ALLOW_BRIDGE_WETH) {
+                if (await this.checkBridgeWETHAllowed()) {
                     try {
                         l2WethToken = await bridgeContracts.weth.l2TokenAddress(token);
                     } catch (e) {}
@@ -176,6 +197,16 @@ export function AdapterL1<TBase extends Constructor<TxSender>>(Base: TBase) {
             }
 
             return await erc20contract.approve(bridgeAddress as Address, amount, overrides);
+        }
+
+        async approveBaseToken(amount: BigNumberish): Promise<ethers.ContractTransactionReceipt> {
+            const CRO = CronosTestnet__factory.connect(await this.baseTokenAddress(), this._signerL1());
+            const contractAddress = await this._providerL2().getMainContractAddress();
+
+            console.info("Sending CRO approve tx");
+            const approveTx = await CRO.approve(contractAddress, amount);
+            const receipt = await approveTx.wait();
+            return receipt;
         }
 
         async getBaseCost(params: {
@@ -219,11 +250,33 @@ export function AdapterL1<TBase extends Constructor<TxSender>>(Base: TBase) {
                 depositTx.overrides.gasLimit ??= gasLimit;
 
                 return this.requestExecute(depositTx);
+            } else if (transaction.token == (await this.baseTokenAddress())) {
+                const CRO = CronosTestnet__factory.connect(transaction.token, this._signerL1());
+                const contractAddress = await this._providerL2().getMainContractAddress();
+
+                let allowance = await CRO.allowance(this.getAddress(), contractAddress);
+
+                if (allowance < BigInt(depositTx.amount)) {
+                    console.info(
+                        "CRO allowance amount is low:",
+                        "allowance:",
+                        ethers.formatEther(allowance),
+                        "tx-amount:",
+                        ethers.formatEther(transaction.amount),
+                        "total cost:",
+                        ethers.formatEther(depositTx.overrides.value),
+                    );
+                    console.info("Sending CRO approve tx");
+                    const approveTx = await CRO.approve(contractAddress, transaction.amount);
+                    await approveTx.wait();
+                }
+
+                return await this.requestExecute(depositTx);
             } else {
                 const bridgeContracts = await this.getL1BridgeContracts();
                 if (transaction.approveERC20) {
                     let l2WethToken = ethers.ZeroAddress;
-                    if (ALLOW_BRIDGE_WETH) {
+                    if (await this.checkBridgeWETHAllowed()) {
                         try {
                             l2WethToken = await bridgeContracts.weth.l2TokenAddress(transaction.token);
                         } catch (e) {}
@@ -250,6 +303,18 @@ export function AdapterL1<TBase extends Constructor<TxSender>>(Base: TBase) {
                         );
                         await approveTx.wait();
                     }
+                }
+
+                // the sender requires to approve base token to be able to proceed estimateGas
+                const CRO = CronosTestnet__factory.connect(
+                    await this.baseTokenAddress(),
+                    this._signerL1(),
+                );
+                const contractAddress = await this._providerL2().getMainContractAddress();
+                let allowance_CRO = await CRO.allowance(this.getAddress(), contractAddress);
+                if (allowance_CRO < BigInt(depositTx.value)) {
+                    const approveTx = await CRO.approve(contractAddress, depositTx.value);
+                    await approveTx.wait();
                 }
 
                 const baseGasLimit = await this._providerL1().estimateGas(depositTx);
@@ -300,6 +365,7 @@ export function AdapterL1<TBase extends Constructor<TxSender>>(Base: TBase) {
             overrides?: ethers.Overrides;
         }): Promise<any> {
             const bridgeContracts = await this.getL1BridgeContracts();
+
             if (transaction.bridgeAddress != null) {
                 bridgeContracts.erc20 = bridgeContracts.erc20.attach(
                     transaction.bridgeAddress,
@@ -315,9 +381,11 @@ export function AdapterL1<TBase extends Constructor<TxSender>>(Base: TBase) {
             if (tx.bridgeAddress != null) {
                 const customBridgeData =
                     tx.customBridgeData ??
-                    (ALLOW_BRIDGE_WETH && (await bridgeContracts.weth.getAddress()) == tx.bridgeAddress)
+                    ((await this.checkBridgeWETHAllowed()) &&
+                        (await bridgeContracts.weth.getAddress()) == tx.bridgeAddress)
                         ? "0x"
                         : await getERC20DefaultBridgeData(tx.token, this._providerL1());
+
                 let bridge = IL1Bridge__factory.connect(tx.bridgeAddress, this._signerL1());
                 let l2Address = await bridge.l2Bridge();
                 tx.l2GasLimit ??= await estimateCustomBridgeDepositL2Gas(
@@ -352,15 +420,13 @@ export function AdapterL1<TBase extends Constructor<TxSender>>(Base: TBase) {
 
             const baseCost = await zksyncContract.l2TransactionBaseCost(
                 // @ts-ignore
-                await gasPriceForEstimation,
+                gasPriceForEstimation,
                 tx.l2GasLimit,
                 tx.gasPerPubdataByte,
             );
 
-            if (token == ETH_ADDRESS) {
-                checkBridgeWETHAllowed();
+            if (token == ETH_ADDRESS && (await this.checkBridgeWETHAllowed())) {
                 overrides.value ??= baseCost + BigInt(operatorTip) + BigInt(amount);
-
                 return {
                     contractAddress: to,
                     calldata: "0x",
@@ -369,8 +435,17 @@ export function AdapterL1<TBase extends Constructor<TxSender>>(Base: TBase) {
                     l2GasLimit: tx.l2GasLimit!,
                     ...tx,
                 };
+            } else if (token.toLowerCase() == (await this.baseTokenAddress())) {
+                overrides.value ??= baseCost + BigInt(operatorTip);
+                return {
+                    contractAddress: to,
+                    calldata: "0x",
+                    l2Value: 0,
+                    ...tx,
+                };
             } else {
                 let refundRecipient = tx.refundRecipient ?? ethers.ZeroAddress;
+                const l1Amount = baseCost + BigInt(operatorTip);
                 const args: [
                     Address,
                     Address,
@@ -379,14 +454,13 @@ export function AdapterL1<TBase extends Constructor<TxSender>>(Base: TBase) {
                     BigNumberish,
                     Address,
                     BigNumberish,
-                ] = [to, token, amount, tx.l2GasLimit, tx.gasPerPubdataByte, refundRecipient, 0];
+                ] = [to, token, amount, tx.l2GasLimit, tx.gasPerPubdataByte, refundRecipient, l1Amount];
 
-                overrides.value ??= baseCost + BigInt(operatorTip);
-                await checkBaseCost(baseCost, overrides.value);
+                overrides.value ??= l1Amount;
                 overrides.from ??= await this.getAddress();
 
                 let l2WethToken = ethers.ZeroAddress;
-                if (ALLOW_BRIDGE_WETH) {
+                if (await this.checkBridgeWETHAllowed()) {
                     try {
                         l2WethToken = await bridgeContracts.weth.l2TokenAddress(tx.token);
                     } catch (e) {}
@@ -399,7 +473,7 @@ export function AdapterL1<TBase extends Constructor<TxSender>>(Base: TBase) {
             }
         }
 
-        // Retrieves the full needed ETH fee for the deposit.
+        // Retrieves the full needed CRO fee for the deposit.
         // Returns the L1 fee and the L2 fee.
         async getFullRequiredDepositFee(transaction: {
             token: Address;
@@ -417,8 +491,7 @@ export function AdapterL1<TBase extends Constructor<TxSender>>(Base: TBase) {
 
             tx.overrides ??= {};
             await insertGasPrice(this._providerL1(), tx.overrides);
-            const gasPriceForMessages =
-                (await tx.overrides.maxFeePerGas) || (await tx.overrides.gasPrice);
+            const gasPriceForMessages = tx.overrides.maxFeePerGas || tx.overrides.gasPrice;
 
             tx.to ??= await this.getAddress();
             tx.gasPerPubdataByte ??= REQUIRED_L1_TO_L2_GAS_PER_PUBDATA_LIMIT;
@@ -428,7 +501,8 @@ export function AdapterL1<TBase extends Constructor<TxSender>>(Base: TBase) {
                 const bridgeContracts = await this.getL1BridgeContracts();
                 const customBridgeData =
                     tx.customBridgeData ??
-                    (ALLOW_BRIDGE_WETH && (await bridgeContracts.weth.getAddress()) == tx.bridgeAddress)
+                    ((await this.checkBridgeWETHAllowed()) &&
+                        (await bridgeContracts.weth.getAddress()) == tx.bridgeAddress)
                         ? "0x"
                         : await getERC20DefaultBridgeData(tx.token, this._providerL1());
                 let bridge = IL1Bridge__factory.connect(tx.bridgeAddress, this._signerL1());
@@ -463,21 +537,22 @@ export function AdapterL1<TBase extends Constructor<TxSender>>(Base: TBase) {
                 tx.gasPerPubdataByte,
             );
 
-            const selfBalanceETH = await this.getBalanceL1();
+            const baseTokenAddress = await zksyncContract.baseTokenAddress();
+            const selfBalanceBaseToken = await this.getBalanceL1(baseTokenAddress);
 
             // We could zero in, because the final fee will anyway be bigger than
-            if (baseCost >= selfBalanceETH + dummyAmount) {
-                const recommendedETHBalance =
+            if (baseCost >= selfBalanceBaseToken + dummyAmount) {
+                const recommendedBaseTokenBalance =
                     BigInt(
-                        ALLOW_BRIDGE_WETH && tx.token == ETH_ADDRESS
+                        (await this.checkBridgeWETHAllowed()) && tx.token == ETH_ADDRESS
                             ? L1_RECOMMENDED_MIN_ETH_DEPOSIT_GAS_LIMIT
                             : L1_RECOMMENDED_MIN_ERC20_DEPOSIT_GAS_LIMIT,
                     ) *
                         BigInt(gasPriceForMessages as BigNumberish) +
                     baseCost;
-                const formattedRecommendedBalance = ethers.formatEther(recommendedETHBalance);
+                const formattedRecommendedBalance = ethers.formatEther(recommendedBaseTokenBalance);
                 throw new Error(
-                    `Not enough balance for deposit. Under the provided gas price, the recommended balance to perform a deposit is ${formattedRecommendedBalance} ETH`,
+                    `Not enough balance for deposit. Under the provided gas price, the recommended balance to perform a deposit is ${formattedRecommendedBalance} CRO`,
                 );
             }
 
@@ -516,12 +591,10 @@ export function AdapterL1<TBase extends Constructor<TxSender>>(Base: TBase) {
             };
 
             if (tx.overrides.gasPrice) {
-                fullCost.gasPrice = BigInt(await tx.overrides.gasPrice);
+                fullCost.gasPrice = BigInt(tx.overrides.gasPrice);
             } else {
-                fullCost.maxFeePerGas = BigInt((await tx.overrides.maxFeePerGas) as bigint);
-                fullCost.maxPriorityFeePerGas = BigInt(
-                    (await tx.overrides.maxPriorityFeePerGas) as bigint,
-                );
+                fullCost.maxFeePerGas = BigInt(tx.overrides.maxFeePerGas as bigint);
+                fullCost.maxPriorityFeePerGas = BigInt(tx.overrides.maxPriorityFeePerGas as bigint);
             }
 
             return fullCost;
@@ -583,8 +656,7 @@ export function AdapterL1<TBase extends Constructor<TxSender>>(Base: TBase) {
             const { l1BatchNumber, l2MessageIndex, l2TxNumberInBlock, message, sender, proof } =
                 await this.finalizeWithdrawalParams(withdrawalHash, index);
 
-            if (isETH(sender)) {
-                checkBridgeWETHAllowed();
+            if (isETH(sender) && (await this.checkBridgeWETHAllowed())) {
                 const withdrawTo = ethers.dataSlice(message, 4, 24);
                 const l1Bridges = await this.getL1BridgeContracts();
                 // If the destination address matches the address of the L1 WETH contract,
@@ -603,6 +675,17 @@ export function AdapterL1<TBase extends Constructor<TxSender>>(Base: TBase) {
                 const contractAddress = await this._providerL2().getMainContractAddress();
                 const zksync = IZkSync__factory.connect(contractAddress, this._signerL1());
 
+                return await zksync.finalizeEthWithdrawal(
+                    l1BatchNumber as BigNumberish,
+                    l2MessageIndex as BigNumberish,
+                    l2TxNumberInBlock as BigNumberish,
+                    message,
+                    proof,
+                    overrides ?? {},
+                );
+            } else if (L2_ETH_TOKEN_ADDRESS == sender.toLowerCase()) {
+                const contractAddress = await this._providerL2().getMainContractAddress();
+                const zksync = IZkSync__factory.connect(contractAddress, this._signerL1());
                 return await zksync.finalizeEthWithdrawal(
                     l1BatchNumber as BigNumberish,
                     l2MessageIndex as BigNumberish,
@@ -640,8 +723,7 @@ export function AdapterL1<TBase extends Constructor<TxSender>>(Base: TBase) {
                 throw new Error("Log proof not found!");
             }
 
-            if (isETH(sender)) {
-                checkBridgeWETHAllowed();
+            if (isETH(sender) && (await this.checkBridgeWETHAllowed())) {
                 const contractAddress = await this._providerL2().getMainContractAddress();
                 const zksync = IZkSync__factory.connect(contractAddress, this._signerL1());
 
@@ -701,6 +783,7 @@ export function AdapterL1<TBase extends Constructor<TxSender>>(Base: TBase) {
         async requestExecute(transaction: {
             contractAddress: Address;
             calldata: string;
+            amount: BigNumberish;
             l2GasLimit: BigNumberish;
             l2Value?: BigNumberish;
             factoryDeps?: ethers.BytesLike[];
@@ -718,6 +801,7 @@ export function AdapterL1<TBase extends Constructor<TxSender>>(Base: TBase) {
         async estimateGasRequestExecute(transaction: {
             contractAddress: Address;
             calldata: string;
+            amount: BigNumberish;
             l2GasLimit?: BigNumberish;
             l2Value?: BigNumberish;
             factoryDeps?: ethers.BytesLike[];
@@ -738,6 +822,7 @@ export function AdapterL1<TBase extends Constructor<TxSender>>(Base: TBase) {
         async getRequestExecuteTx(transaction: {
             contractAddress: Address;
             calldata: string;
+            amount: BigNumberish;
             l2GasLimit?: BigNumberish;
             l2Value?: BigNumberish;
             factoryDeps?: ethers.BytesLike[];
@@ -768,20 +853,21 @@ export function AdapterL1<TBase extends Constructor<TxSender>>(Base: TBase) {
                 overrides,
                 gasPerPubdataByte,
                 refundRecipient,
+                amount,
             } = tx;
 
             await insertGasPrice(this._providerL1(), overrides);
             const gasPriceForEstimation = overrides.maxFeePerGas || overrides.gasPrice;
 
             const baseCost = await this.getBaseCost({
-                gasPrice: (await gasPriceForEstimation) as BigNumberish,
+                gasPrice: gasPriceForEstimation as BigNumberish,
                 gasPerPubdataByte,
                 gasLimit: l2GasLimit,
             });
 
-            overrides.value ??= baseCost + BigInt(operatorTip) + BigInt(l2Value);
-
-            await checkBaseCost(baseCost, overrides.value);
+            // fee on L2 is subsctracted from the amount
+            // overrides.value ??= baseCost + BigInt(operatorTip) + BigInt(l2Value);
+            // await checkBaseCost(baseCost, overrides.value);
 
             const l2Tx: L2TransactionStruct = {
                 l2Contract: contractAddress,
@@ -795,7 +881,7 @@ export function AdapterL1<TBase extends Constructor<TxSender>>(Base: TBase) {
                 calldata,
                 factoryDeps,
                 refundRecipient,
-                0,
+                amount,
                 overrides,
             );
         }
@@ -829,11 +915,13 @@ export function AdapterL2<TBase extends Constructor<TxSender>>(Base: TBase) {
 
         async getL2BridgeContracts(): Promise<{ erc20: IL2Bridge; weth: IL2Bridge }> {
             const addresses = await this._providerL2().getDefaultBridgeAddresses();
+
             return {
                 erc20: IL2Bridge__factory.connect(addresses.erc20L2 as string, this._signerL2()),
-                weth: ALLOW_BRIDGE_WETH
-                    ? IL2Bridge__factory.connect(addresses.wethL2 as string, this._signerL2())
-                    : (null as unknown as IL2Bridge),
+                weth:
+                    addresses.wethL2 != null
+                        ? IL2Bridge__factory.connect(addresses.wethL2 as string, this._signerL2())
+                        : (null as unknown as IL2Bridge),
             };
         }
 
