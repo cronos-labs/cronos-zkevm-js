@@ -13,16 +13,16 @@ export class CronosTestnetFactory extends ContractFactory {
     super(_abi, _bytecode, signer);
   }
 
-  deploy(overrides?: Overrides): Promise<CronosTestnet> {
+  override deploy(overrides?: Overrides): Promise<CronosTestnet> {
     return super.deploy(overrides || {}) as Promise<CronosTestnet>;
   }
-  getDeployTransaction(overrides?: Overrides): TransactionRequest {
+  override getDeployTransaction(overrides?: Overrides): TransactionRequest {
     return super.getDeployTransaction(overrides || {});
   }
-  attach(address: string): CronosTestnet {
+  override attach(address: string): CronosTestnet {
     return super.attach(address) as CronosTestnet;
   }
-  connect(signer: Signer): CronosTestnetFactory {
+  override connect(signer: Signer): CronosTestnetFactory {
     return super.connect(signer) as CronosTestnetFactory;
   }
   static connect(
