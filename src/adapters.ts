@@ -199,7 +199,7 @@ export function AdapterL1<TBase extends Constructor<TxSender>>(Base: TBase) {
             return await erc20contract.approve(bridgeAddress as Address, amount, overrides);
         }
 
-        async approveBaseToken(amount: BigNumberish): Promise<ethers.ContractTransactionReceipt> {
+        async approveBaseToken(amount: BigNumberish): Promise<null | ethers.ContractTransactionReceipt> {
             const CRO = CronosTestnet__factory.connect(await this.baseTokenAddress(), this._signerL1());
             const contractAddress = await this._providerL2().getMainContractAddress();
 

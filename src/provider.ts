@@ -597,7 +597,11 @@ export function JsonRpcApiProvider<TBase extends Constructor<ethers.JsonRpcApiPr
             if (!this.contractAddresses().baseToken) {
                 await this.getDefaultBridgeAddresses();
             }
-            return this.contractAddresses().baseToken;
+            let baseToken = this.contractAddresses().baseToken;
+            if (baseToken == undefined) {
+                baseToken = "0x"
+            }
+            return baseToken;
         }
 
         async isBaseTokenAddress(token: Address): Promise<boolean> {
