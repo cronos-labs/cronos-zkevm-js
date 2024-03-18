@@ -1,10 +1,9 @@
 import { BigNumber, BigNumberish, BytesLike, ethers } from 'ethers';
-import { IERC20MetadataFactory, IL1BridgeFactory, IL2BridgeFactory, IZkSyncFactory } from '../typechain';
+import { IERC20MetadataFactory, IL1BridgeFactory, IL2BridgeFactory, IZkSyncFactory, CronosTestnetFactory} from '../typechain';
 import { Provider } from './provider';
 import { Address, BalancesMap, BlockTag, Eip712Meta, PriorityOpResponse, TransactionResponse } from './types';
 import {
     BOOTLOADER_FORMAL_ADDRESS,
-    checkBaseCost,
     DEFAULT_GAS_PER_PUBDATA_LIMIT,
     REQUIRED_L1_TO_L2_GAS_PER_PUBDATA_LIMIT,
     ETH_ADDRESS,
@@ -12,8 +11,11 @@ import {
     L1_MESSENGER_ADDRESS,
     layer1TxDefaults,
     undoL1ToL2Alias,
-    estimateDefaultBridgeDepositL2Gas
+    estimateDefaultBridgeDepositL2Gas,
+    L2_ETH_TOKEN_ADDRESS
 } from './utils';
+
+import { CronosTestnet } from "../typechain/CronosTestnet";
 
 type Constructor<T = {}> = new (...args: any[]) => T;
 
@@ -34,9 +36,24 @@ export function AdapterL1<TBase extends Constructor<TxSender>>(Base: TBase) {
             throw new Error('Must be implemented by the derived class!');
         }
 
+        _baseTokenAddress?: string;
+
         async getMainContract() {
             const address = await this._providerL2().getMainContractAddress();
             return IZkSyncFactory.connect(address, this._signerL1());
+        }
+
+        async getBaseTokenContract(): Promise<CronosTestnet> {
+            return CronosTestnetFactory.connect(await this.baseTokenAddress(), this._signerL1());
+        }
+
+        async baseTokenAddress(): Promise<string> {
+            if (this._baseTokenAddress == undefined) {
+                const zkSyncContract = await this.getMainContract();
+                this._baseTokenAddress = (await zkSyncContract.baseTokenAddress()).toLowerCase();
+            }
+
+            return this._baseTokenAddress;
         }
 
         async getL1BridgeContracts() {
@@ -58,6 +75,8 @@ export function AdapterL1<TBase extends Constructor<TxSender>>(Base: TBase) {
 
         async l2TokenAddress(token: Address) {
             if (token == ETH_ADDRESS) {
+                return ETH_ADDRESS;
+            }  else if (token.toLowerCase() == (await this.baseTokenAddress())) {
                 return ETH_ADDRESS;
             } else {
                 const erc20Bridge = (await this.getL1BridgeContracts()).erc20;
@@ -84,6 +103,16 @@ export function AdapterL1<TBase extends Constructor<TxSender>>(Base: TBase) {
             }
 
             return await erc20contract.approve(bridgeAddress, amount, overrides);
+        }
+
+        async approveBaseToken(amount: BigNumberish): Promise<ethers.ContractReceipt> {
+            const CRO = CronosTestnetFactory.connect(await this.baseTokenAddress(), this._signerL1());
+            const contractAddress = await this._providerL2().getMainContractAddress();
+
+            console.info("Sending CRO approve tx");
+            const approveTx = await CRO.approve(contractAddress, amount);
+            const receipt = await approveTx.wait();
+            return receipt;
         }
 
         async getBaseCost(params: {
@@ -114,12 +143,35 @@ export function AdapterL1<TBase extends Constructor<TxSender>>(Base: TBase) {
             approveERC20?: boolean;
             l2GasLimit?: BigNumberish;
             gasPerPubdataByte?: BigNumberish;
+            refundRecipient?: Address;
             overrides?: ethers.PayableOverrides;
             approveOverrides?: ethers.Overrides;
         }): Promise<PriorityOpResponse> {
             const depositTx = await this.getDepositTx(transaction);
             if (transaction.token == ETH_ADDRESS) {
                 return this.requestExecute(depositTx);
+            } else if (transaction.token == (await this.baseTokenAddress())) {
+                const CRO = CronosTestnetFactory.connect(transaction.token, this._signerL1());
+                const contractAddress = await this._providerL2().getMainContractAddress();
+
+                let allowance = await CRO.allowance(await this.getAddress(), contractAddress);
+
+                if (allowance < BigNumber.from(depositTx.amount)) {
+                    console.info(
+                        "CRO allowance amount is low:",
+                        "allowance:",
+                        ethers.utils.formatEther(allowance),
+                        "tx-amount:",
+                        ethers.utils.formatEther(transaction.amount),
+                        "total cost:",
+                        ethers.utils.formatEther(depositTx.overrides.value),
+                    );
+                    console.info("Sending CRO approve tx");
+                    const approveTx = await CRO.approve(contractAddress, transaction.amount);
+                    await approveTx.wait();
+                }
+
+                return await this.requestExecute(depositTx);
             } else {
                 const bridgeContracts = await this.getL1BridgeContracts();
                 if (transaction.approveERC20) {
@@ -129,6 +181,19 @@ export function AdapterL1<TBase extends Constructor<TxSender>>(Base: TBase) {
                     });
                     await approveTx.wait();
                 }
+
+                // the sender requires to approve base token to be able to proceed estimateGas
+                const CRO = CronosTestnetFactory.connect(
+                    await this.baseTokenAddress(),
+                    this._signerL1(),
+                );
+                const contractAddress = await this._providerL2().getMainContractAddress();
+                let allowance_CRO = await CRO.allowance(await this.getAddress(), contractAddress);
+                if (allowance_CRO < BigNumber.from(depositTx.value)) {
+                    const approveTx = await CRO.approve(contractAddress, depositTx.value);
+                    await approveTx.wait();
+                } 
+
                 return await this._providerL2().getPriorityOpResponse(
                     await this._signerL1().sendTransaction(depositTx)
                 );
@@ -161,6 +226,7 @@ export function AdapterL1<TBase extends Constructor<TxSender>>(Base: TBase) {
             bridgeAddress?: Address;
             l2GasLimit?: BigNumberish;
             gasPerPubdataByte?: BigNumberish;
+            refundRecipient?: Address;
             overrides?: ethers.PayableOverrides;
         }): Promise<any> {
             const bridgeContracts = await this.getL1BridgeContracts();
@@ -183,7 +249,7 @@ export function AdapterL1<TBase extends Constructor<TxSender>>(Base: TBase) {
                 tx.gasPerPubdataByte
             );
 
-            const { to, token, amount, operatorTip, overrides } = tx;
+            const { to, token, amount, operatorTip, refundRecipient, overrides } = tx;
 
             await insertGasPrice(this._providerL1(), overrides);
             const gasPriceForEstimation = overrides.maxFeePerGas || overrides.gasPrice;
@@ -208,17 +274,27 @@ export function AdapterL1<TBase extends Constructor<TxSender>>(Base: TBase) {
                     l2GasLimit: tx.l2GasLimit!,
                     ...tx
                 };
+            } else if (token.toLowerCase() == (await this.baseTokenAddress())) {
+                overrides.value ??= baseCost.add(BigNumber.from(operatorTip));
+                return {
+                    contractAddress: to,
+                    calldata: "0x",
+                    l2Value: 0,
+                    ...tx,
+                };                
             } else {
-                const args: [Address, Address, BigNumberish, BigNumberish, BigNumberish] = [
+                const l1Amount = baseCost.add(BigNumber.from(operatorTip));
+                const args: [Address, Address, BigNumberish, BigNumberish, BigNumberish, Address,
+                    BigNumberish] = [
                     to,
                     token,
                     amount,
                     tx.l2GasLimit,
-                    tx.gasPerPubdataByte
+                    tx.gasPerPubdataByte,
+                    refundRecipient, l1Amount,
                 ];
 
-                overrides.value ??= baseCost.add(operatorTip);
-                await checkBaseCost(baseCost, overrides.value);
+                overrides.value ??= l1Amount;
 
                 // TODO: compatibility layer: using the old API which uses msg.sender as the
                 // refund recipient, to make the SDK compatible with the old contracts.
@@ -287,6 +363,17 @@ export function AdapterL1<TBase extends Constructor<TxSender>>(Base: TBase) {
                     message,
                     proof,
                     overrides ?? {}
+                );
+            } else if (L2_ETH_TOKEN_ADDRESS == sender.toLowerCase()) {
+                const contractAddress = await this._providerL2().getMainContractAddress();
+                const zksync = IZkSyncFactory.connect(contractAddress, this._signerL1());
+                return await zksync.finalizeEthWithdrawal(
+                    l1BatchNumber as BigNumberish,
+                    l2MessageIndex as BigNumberish,
+                    l2TxNumberInBlock as BigNumberish,
+                    message,
+                    proof,
+                    overrides ?? {},
                 );
             }
 
@@ -361,6 +448,7 @@ export function AdapterL1<TBase extends Constructor<TxSender>>(Base: TBase) {
         async requestExecute(transaction: {
             contractAddress: Address;
             calldata: BytesLike;
+            amount: BigNumberish;
             l2GasLimit?: BigNumberish;
             l2Value?: BigNumberish;
             factoryDeps?: ethers.BytesLike[];
@@ -376,6 +464,7 @@ export function AdapterL1<TBase extends Constructor<TxSender>>(Base: TBase) {
         async estimateGasRequestExecute(transaction: {
             contractAddress: Address;
             calldata: BytesLike;
+            amount: BigNumberish;
             l2GasLimit?: BigNumberish;
             l2Value?: BigNumberish;
             factoryDeps?: ethers.BytesLike[];
@@ -391,6 +480,7 @@ export function AdapterL1<TBase extends Constructor<TxSender>>(Base: TBase) {
         async getRequestExecuteTx(transaction: {
             contractAddress: Address;
             calldata: BytesLike;
+            amount: BigNumberish;
             l2GasLimit?: BigNumberish;
             l2Value?: BigNumberish;
             factoryDeps?: ethers.BytesLike[];
@@ -419,7 +509,8 @@ export function AdapterL1<TBase extends Constructor<TxSender>>(Base: TBase) {
                 operatorTip,
                 overrides,
                 gasPerPubdataByte,
-                refundRecipient
+                refundRecipient,
+                amount
             } = tx;
 
             await insertGasPrice(this._providerL1(), overrides);
@@ -431,18 +522,28 @@ export function AdapterL1<TBase extends Constructor<TxSender>>(Base: TBase) {
                 gasLimit: l2GasLimit
             });
 
-            overrides.value ??= baseCost.add(operatorTip).add(l2Value);
+            // fee on L2 is subsctracted from the amount
+            // overrides.value ??= baseCost + BigInt(operatorTip) + BigInt(l2Value);
+            // await checkBaseCost(baseCost, overrides.value);
 
-            await checkBaseCost(baseCost, overrides.value);
+            let l2tx: {
+                l2Contract: string;
+                l2Value: BigNumberish;
+                l2GasLimit: BigNumberish;
+                l2GasPerPubdataByteLimit: BigNumberish;
+            } 
+            
+            l2tx.l2Contract = contractAddress
+            l2tx.l2Value = l2Value;
+            l2tx.l2GasLimit = l2GasLimit;
+            l2tx.l2GasPerPubdataByteLimit = REQUIRED_L1_TO_L2_GAS_PER_PUBDATA_LIMIT;
 
             return await zksyncContract.populateTransaction.requestL2Transaction(
-                contractAddress,
-                l2Value,
-                calldata,
-                l2GasLimit,
-                REQUIRED_L1_TO_L2_GAS_PER_PUBDATA_LIMIT,
+                l2tx,
+                calldata,                
                 factoryDeps,
                 refundRecipient,
+                amount,
                 overrides
             );
         }
