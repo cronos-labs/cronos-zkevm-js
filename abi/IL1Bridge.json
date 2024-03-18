@@ -30,6 +30,12 @@
       "inputs": [
         {
           "indexed": true,
+          "internalType": "bytes32",
+          "name": "l2DepositTxHash",
+          "type": "bytes32"
+        },
+        {
+          "indexed": true,
           "internalType": "address",
           "name": "from",
           "type": "address"
@@ -41,7 +47,7 @@
           "type": "address"
         },
         {
-          "indexed": true,
+          "indexed": false,
           "internalType": "address",
           "name": "l1Token",
           "type": "address"
@@ -100,7 +106,7 @@
         },
         {
           "internalType": "uint256",
-          "name": "_l2BlockNumber",
+          "name": "_l2BatchNumber",
           "type": "uint256"
         },
         {
@@ -110,7 +116,7 @@
         },
         {
           "internalType": "uint16",
-          "name": "_l2TxNumberInBlock",
+          "name": "_l2TxNumberInBatch",
           "type": "uint16"
         },
         {
@@ -150,6 +156,16 @@
           "internalType": "uint256",
           "name": "_l2TxGasPerPubdataByte",
           "type": "uint256"
+        },
+        {
+          "internalType": "address",
+          "name": "_refundRecipient",
+          "type": "address"
+        },
+        {
+          "internalType": "uint256",
+          "name": "_l1Amount",
+          "type": "uint256"
         }
       ],
       "name": "deposit",
@@ -167,7 +183,7 @@
       "inputs": [
         {
           "internalType": "uint256",
-          "name": "_l2BlockNumber",
+          "name": "_l2BatchNumber",
           "type": "uint256"
         },
         {
@@ -177,7 +193,7 @@
         },
         {
           "internalType": "uint16",
-          "name": "_l2TxNumberInBlock",
+          "name": "_l2TxNumberInBatch",
           "type": "uint16"
         },
         {
@@ -200,7 +216,7 @@
       "inputs": [
         {
           "internalType": "uint256",
-          "name": "_l2BlockNumber",
+          "name": "_l2BatchNumber",
           "type": "uint256"
         },
         {
@@ -215,6 +231,19 @@
           "internalType": "bool",
           "name": "",
           "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "l2Bridge",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
         }
       ],
       "stateMutability": "view",
