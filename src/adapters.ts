@@ -526,17 +526,12 @@ export function AdapterL1<TBase extends Constructor<TxSender>>(Base: TBase) {
             // overrides.value ??= baseCost + BigInt(operatorTip) + BigInt(l2Value);
             // await checkBaseCost(baseCost, overrides.value);
 
-            let l2tx: {
-                l2Contract: string;
-                l2Value: BigNumberish;
-                l2GasLimit: BigNumberish;
-                l2GasPerPubdataByteLimit: BigNumberish;
-            } 
-            
-            l2tx.l2Contract = contractAddress
-            l2tx.l2Value = l2Value;
-            l2tx.l2GasLimit = l2GasLimit;
-            l2tx.l2GasPerPubdataByteLimit = REQUIRED_L1_TO_L2_GAS_PER_PUBDATA_LIMIT;
+            let l2tx = {
+                l2Contract: contractAddress,
+                l2Value: l2Value,
+                l2GasLimit: l2GasLimit,
+                l2GasPerPubdataByteLimit: REQUIRED_L1_TO_L2_GAS_PER_PUBDATA_LIMIT
+            };
 
             return await zksyncContract.populateTransaction.requestL2Transaction(
                 l2tx,

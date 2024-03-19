@@ -1,7 +1,6 @@
 import { expect } from "chai";
-import { Provider, types, Wallet } from "../src";
+import { Provider, Wallet } from "../src";
 import { BigNumber, ethers } from "ethers";
-import { sleep } from "../src/utils";
 import { Address } from "../src/types";
 
 const mnemonic = "stuff slice staff easily soup parent arm payment cotton trade scatter struggle";
@@ -22,6 +21,7 @@ describe("BaseToken", () => {
         BASE_TOKEN_ADDR = await wallet.baseTokenAddress();
     });
 
+    //unsuuported test in SDK v0.14.4
     // describe("#depositFee()", async () => {
     //     it("should estimates the base token deposit fee", async () => {
     //         const deposit_amount = ethers.utils.parseEther("1");
@@ -59,7 +59,7 @@ describe("BaseToken", () => {
                 "w1_l1_ETH_balance after deposit: ",
                 ethers.utils.formatEther(await wallet.getBalanceL1()),
             );
-            expect(l1_balance.sub(l1_balance_new)).to.be.equal(deposit_amount);
+            expect(l1_balance.sub(l1_balance_new).toBigInt()).to.be.equal(deposit_amount.toBigInt());
             console.log(
                 "w1_l2_balance after deposit: ",
                 ethers.utils.formatEther(await wallet.getBalance(BASE_TOKEN_ADDR)),
@@ -91,8 +91,8 @@ describe("BaseToken", () => {
 
             const l2_balance_new = await wallet2.getBalance(BASE_TOKEN_ADDR);
             console.log("w2_l2_balance after transfer: ", ethers.utils.formatEther(l2_balance_new));
-            expect(l2_balance_new.sub(l2_balance)).to.be.equal(transfer_amount);
-        });
+            expect(l2_balance_new.sub(l2_balance).toBigInt()).to.be.equal(transfer_amount.toBigInt());
+        }).timeout(testTimeout);
     });
 
     describe("#withdraw()", () => {
@@ -122,26 +122,27 @@ describe("BaseToken", () => {
             const l2_balance_new = await wallet.getBalance(BASE_TOKEN_ADDR);
             console.log("w2_l2_balance after withdraw: ", ethers.utils.formatEther(l2_balance_new));
 
-            expect(l1_balance_new.sub(l1_balance)).to.be.equal(withdraw_amount);
+            expect(l1_balance_new.sub(l1_balance).toBigInt()).to.be.equal(withdraw_amount.toBigInt());
         }).timeout(testTimeout);
     });
 });
 
-describe("ERC20", () => {
-    const DAI_ADDRESS = "0x17787f7A5b80512CfE552882B7a55B868a185995"; // the address be defined in the deployed test token list
+    describe("ERC20", () => {
+        // make sure set the DAI ADDRESS correctly, the address be defined in the deployed test token list
+        const DAI_ADDRESS = "0x08A83d7767BAA61243bc5dAB4C6F6ab9e147e640";
 
-    let mnemonicWallet = ethers.Wallet.fromMnemonic(mnemonic);    
-    let mnemonicWallet2 = ethers.Wallet.fromMnemonic(mnemonic2);
+        let mnemonicWallet = ethers.Wallet.fromMnemonic(mnemonic);    
+        let mnemonicWallet2 = ethers.Wallet.fromMnemonic(mnemonic2);
 
-    const wallet = new Wallet(mnemonicWallet.privateKey, provider, ethProvider);
-    const wallet2 = new Wallet(mnemonicWallet2.privateKey, provider, ethProvider);
-    let BASE_TOKEN_ADDR: Address;
-    let L2_ERC20_ADDR: Address;
+        const wallet = new Wallet(mnemonicWallet.privateKey, provider, ethProvider);
+        const wallet2 = new Wallet(mnemonicWallet2.privateKey, provider, ethProvider);
+        let BASE_TOKEN_ADDR: Address;
+        let L2_ERC20_ADDR: Address;
 
-    before("setup", async function () {
-        BASE_TOKEN_ADDR = await wallet.baseTokenAddress();
-        L2_ERC20_ADDR = await provider.l2TokenAddress(DAI_ADDRESS);
-    });
+        before("setup", async function () {
+            BASE_TOKEN_ADDR = await wallet.baseTokenAddress();
+            L2_ERC20_ADDR = await provider.l2TokenAddress(DAI_ADDRESS);
+        });
 
     describe("#deposit()", async () => {
         it("deposit DAI token on L2", async () => {
@@ -167,8 +168,8 @@ describe("ERC20", () => {
             const l2_DAI_balance_new = await wallet.getBalance(L2_ERC20_ADDR);
             console.log("w1_l2_DAI_balance after deposit: ", ethers.utils.formatEther(l2_DAI_balance_new));
 
-            expect(l1_DAI_balance.sub(l1_DAI_balance_new)).to.be.equal(deposit_amount);
-            expect(l2_DAI_balance_new.sub(l2_DAI_balance)).to.be.equal(deposit_amount);
+            expect(l1_DAI_balance.sub(l1_DAI_balance_new).toBigInt()).to.be.equal(deposit_amount.toBigInt());
+            expect(l2_DAI_balance_new.sub(l2_DAI_balance).toBigInt()).to.be.equal(deposit_amount.toBigInt());
         }).timeout(testTimeout * 2);
     });
 
@@ -202,9 +203,9 @@ describe("ERC20", () => {
                 ethers.utils.formatEther(w1_l2_base_token_balance_new),
             );
 
-            expect(w1_l2_DAI_balance.sub(w1_l2_DAI_balance_new)).to.be.equal(transfer_amount);
-            expect(w2_l2_DAI_balance_new.sub(w2_l2_DAI_balance)).to.be.equal(transfer_amount);
-            expect(w1_l2_base_token_balance.sub(w1_l2_base_token_balance_new) > BigNumber.from(0)).to.be.true;
+            expect(w1_l2_DAI_balance.sub(w1_l2_DAI_balance_new).toBigInt()).to.be.equal(transfer_amount.toBigInt());
+            expect(w2_l2_DAI_balance_new.sub(w2_l2_DAI_balance).toBigInt()).to.be.equal(transfer_amount.toBigInt());
+            expect(w1_l2_base_token_balance.sub(w1_l2_base_token_balance_new.toBigInt()).toBigInt() > BigNumber.from(0).toBigInt()).to.be.true;
         }).timeout(testTimeout);
     });
 
@@ -217,8 +218,8 @@ describe("ERC20", () => {
             const w1_l2_base_token_balance = await wallet.getBalance(BASE_TOKEN_ADDR);
             console.log("w2_l2_BASE_TOKEN_balance: ", ethers.utils.formatEther(w1_l2_base_token_balance));
 
-            const withdraw_amount = ethers.utils.parseEther("1");
-            expect(w1_l2_DAI_balance > withdraw_amount).to.be.true;
+            const withdraw_amount = ethers.utils.parseEther("0.5");
+            expect(w1_l2_DAI_balance.toBigInt() > withdraw_amount.toBigInt()).to.be.true;
 
             const withdrawTx = await wallet.withdraw({
                 token: L2_ERC20_ADDR,
@@ -241,12 +242,13 @@ describe("ERC20", () => {
                 ethers.utils.formatEther(w1_l2_base_token_balance_new),
             );
 
-            expect(w1_l2_DAI_balance.sub(w1_l2_DAI_balance_new)).to.be.equal(withdraw_amount);
-            expect(w1_l1_DAI_balance_new.sub(w1_l1_DAI_balance)).to.be.equal(withdraw_amount);
-            expect(w1_l2_base_token_balance.sub(w1_l2_base_token_balance_new) > BigNumber.from(0)).to.be.true;
+            expect(w1_l2_DAI_balance.sub(w1_l2_DAI_balance_new).toBigInt()).to.be.equal(withdraw_amount.toBigInt());
+            expect(w1_l1_DAI_balance_new.sub(w1_l1_DAI_balance).toBigInt()).to.be.equal(withdraw_amount.toBigInt());
+            expect(w1_l2_base_token_balance.sub(w1_l2_base_token_balance_new).toBigInt() > BigNumber.from(0).toBigInt()).to.be.true;
         }).timeout(testTimeout);
     });
 
+    //unsuuported test in SDK v0.14.4
     // describe("#depositFee()", async () => {
     //     it("should estimates the DAI token deposit fee", async () => {
     //         const deposit_amount = ethers.utils.parseEther("1");

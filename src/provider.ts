@@ -162,7 +162,10 @@ export class Provider extends ethers.providers.JsonRpcProvider {
         if (tokenAddress == null || isETH(tokenAddress)) {
             // requesting ETH balance
             return await super.getBalance(address, tag);
-        } else {
+        } else if (await this.isBaseTokenAddress(tokenAddress)) {
+            // requesting base token balance
+            return await super.getBalance(address, blockTag);
+        }  else {
             try {
                 let token = IERC20MetadataFactory.connect(tokenAddress, this);
                 return await token.balanceOf(address, { blockTag: tag });
@@ -342,12 +345,12 @@ export class Provider extends ethers.providers.JsonRpcProvider {
             let addresses = await this.send('zks_getBridgeContracts', []);
             this.contractAddresses.erc20BridgeL1 = addresses.l1Erc20DefaultBridge;
             this.contractAddresses.erc20BridgeL2 = addresses.l2Erc20DefaultBridge;
-            this.contractAddresses.baseToken = addresses.baseTokenAddr;
+            this.contractAddresses.baseToken = String(addresses.baseTokenAddr).toLowerCase();
         }
         return {
             erc20L1: this.contractAddresses.erc20BridgeL1,
             erc20L2: this.contractAddresses.erc20BridgeL2,
-            baseToken: this.contractAddresses.baseToken
+            baseToken: String(this.contractAddresses.baseToken).toLowerCase()
         };
     }
 
