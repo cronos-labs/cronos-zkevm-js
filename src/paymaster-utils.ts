@@ -2,7 +2,7 @@ import { BytesLike, ethers } from 'ethers';
 
 import { Address, ApprovalBasedPaymasterInput, GeneralPaymasterInput, PaymasterInput, PaymasterParams } from './types';
 
-export const IPaymasterFlow = new ethers.utils.Interface(require('../../abi/IPaymasterFlow.json').abi);
+export const IPaymasterFlow = new ethers.utils.Interface(require('../abi/IPaymasterFlow.json').abi);
 
 export function getApprovalBasedPaymasterInput(paymasterInput: ApprovalBasedPaymasterInput): BytesLike {
     return IPaymasterFlow.encodeFunctionData('approvalBased', [

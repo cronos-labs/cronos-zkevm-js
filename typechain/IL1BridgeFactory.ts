@@ -47,6 +47,12 @@ const _abi = [
     inputs: [
       {
         indexed: true,
+        internalType: "bytes32",
+        name: "l2DepositTxHash",
+        type: "bytes32",
+      },
+      {
+        indexed: true,
         internalType: "address",
         name: "from",
         type: "address",
@@ -58,7 +64,7 @@ const _abi = [
         type: "address",
       },
       {
-        indexed: true,
+        indexed: false,
         internalType: "address",
         name: "l1Token",
         type: "address",
@@ -117,7 +123,7 @@ const _abi = [
       },
       {
         internalType: "uint256",
-        name: "_l2BlockNumber",
+        name: "_l2BatchNumber",
         type: "uint256",
       },
       {
@@ -127,7 +133,7 @@ const _abi = [
       },
       {
         internalType: "uint16",
-        name: "_l2TxNumberInBlock",
+        name: "_l2TxNumberInBatch",
         type: "uint16",
       },
       {
@@ -168,6 +174,16 @@ const _abi = [
         name: "_l2TxGasPerPubdataByte",
         type: "uint256",
       },
+      {
+        internalType: "address",
+        name: "_refundRecipient",
+        type: "address",
+      },
+      {
+        internalType: "uint256",
+        name: "_l1Amount",
+        type: "uint256",
+      },
     ],
     name: "deposit",
     outputs: [
@@ -184,7 +200,7 @@ const _abi = [
     inputs: [
       {
         internalType: "uint256",
-        name: "_l2BlockNumber",
+        name: "_l2BatchNumber",
         type: "uint256",
       },
       {
@@ -194,7 +210,7 @@ const _abi = [
       },
       {
         internalType: "uint16",
-        name: "_l2TxNumberInBlock",
+        name: "_l2TxNumberInBatch",
         type: "uint16",
       },
       {
@@ -217,7 +233,7 @@ const _abi = [
     inputs: [
       {
         internalType: "uint256",
-        name: "_l2BlockNumber",
+        name: "_l2BatchNumber",
         type: "uint256",
       },
       {
@@ -232,6 +248,19 @@ const _abi = [
         internalType: "bool",
         name: "",
         type: "bool",
+      },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "l2Bridge",
+    outputs: [
+      {
+        internalType: "address",
+        name: "",
+        type: "address",
       },
     ],
     stateMutability: "view",

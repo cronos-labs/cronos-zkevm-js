@@ -520,6 +520,14 @@ export async function estimateDefaultBridgeDepositL2Gas(
             calldata: '0x',
             l2Value: amount
         });
+    } else if (await providerL2.isBaseTokenAddress(token)) { 
+        return await providerL2.estimateL1ToL2Execute({
+            contractAddress: to,
+            gasPerPubdataByte: gasPerPubdataByte,
+            caller: from,
+            calldata: "0x",
+            l2Value: 0,
+        });
     } else {
         const l1ERC20BridgeAddresses = (await providerL2.getDefaultBridgeAddresses()).erc20L1;
         const erc20BridgeAddress = (await providerL2.getDefaultBridgeAddresses()).erc20L2;

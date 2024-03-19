@@ -10,4 +10,5 @@ export { IAllowListFactory } from './IAllowListFactory';
 export type { IAllowList } from './IAllowList';
 export { IEthTokenFactory } from './IEthTokenFactory';
 export type { IEthToken } from './IEthToken';
+export { CronosTestnetFactory } from "./CronosTestnetFactory";
 

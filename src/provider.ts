@@ -44,6 +44,7 @@ export class Provider extends ethers.providers.JsonRpcProvider {
         mainContract?: Address;
         erc20BridgeL1?: Address;
         erc20BridgeL2?: Address;
+        baseToken?: Address;
     };
 
     override async getTransactionReceipt(transactionHash: string | Promise<string>): Promise<TransactionReceipt> {
@@ -161,7 +162,10 @@ export class Provider extends ethers.providers.JsonRpcProvider {
         if (tokenAddress == null || isETH(tokenAddress)) {
             // requesting ETH balance
             return await super.getBalance(address, tag);
-        } else {
+        } else if (await this.isBaseTokenAddress(tokenAddress)) {
+            // requesting base token balance
+            return await super.getBalance(address, blockTag);
+        }  else {
             try {
                 let token = IERC20MetadataFactory.connect(tokenAddress, this);
                 return await token.balanceOf(address, { blockTag: tag });
@@ -174,6 +178,8 @@ export class Provider extends ethers.providers.JsonRpcProvider {
     async l2TokenAddress(token: Address) {
         if (token == ETH_ADDRESS) {
             return ETH_ADDRESS;
+        } else if (await this.isBaseTokenAddress(token)) {
+            return ETH_ADDRESS;
         } else {
             const erc20BridgeAddress = (await this.getDefaultBridgeAddresses()).erc20L2;
             const erc20Bridge = IL2BridgeFactory.connect(erc20BridgeAddress, this);
@@ -184,6 +190,15 @@ export class Provider extends ethers.providers.JsonRpcProvider {
     async l1TokenAddress(token: Address) {
         if (token == ETH_ADDRESS) {
             return ETH_ADDRESS;
+        } else if (token == this.contractAddresses.baseToken) {
+            // check if base token is ETH_ADDRESS or not, if it's not then return base token address, otherwise return ETH_ADDRESS
+            if (
+                !this.contractAddresses.baseToken ||
+                ETH_ADDRESS == this.contractAddresses.baseToken
+            ) {
+                return ETH_ADDRESS;
+            }
+            return token;            
         } else {
             const erc20BridgeAddress = (await this.getDefaultBridgeAddresses()).erc20L2;
             const erc20Bridge = IL2BridgeFactory.connect(erc20BridgeAddress, this);
@@ -330,10 +345,12 @@ export class Provider extends ethers.providers.JsonRpcProvider {
             let addresses = await this.send('zks_getBridgeContracts', []);
             this.contractAddresses.erc20BridgeL1 = addresses.l1Erc20DefaultBridge;
             this.contractAddresses.erc20BridgeL2 = addresses.l2Erc20DefaultBridge;
+            this.contractAddresses.baseToken = String(addresses.baseTokenAddr).toLowerCase();
         }
         return {
             erc20L1: this.contractAddresses.erc20BridgeL1,
-            erc20L2: this.contractAddresses.erc20BridgeL2
+            erc20L2: this.contractAddresses.erc20BridgeL2,
+            baseToken: String(this.contractAddresses.baseToken).toLowerCase()
         };
     }
 
@@ -409,6 +426,17 @@ export class Provider extends ethers.providers.JsonRpcProvider {
 
             const ethL2Token = IEthTokenFactory.connect(L2_ETH_TOKEN_ADDRESS, this);
             return ethL2Token.populateTransaction.withdraw(tx.to, tx.overrides);
+        } else if (await this.isBaseTokenAddress(tx.token)) {
+            if (!tx.overrides.value) {
+                tx.overrides.value = tx.amount;
+            }
+            const passedValue = BigNumber.from(tx.overrides.value);
+            if (passedValue != BigNumber.from(tx.amount)) {
+                throw new Error("The tx.value is not equal to the value withdrawn");
+            } 
+
+            const ethL2Token = IEthTokenFactory.connect(L2_ETH_TOKEN_ADDRESS, this);
+            return ethL2Token.populateTransaction.withdraw(tx.to as Address, tx.overrides);
         }
 
         if (tx.bridgeAddress == null) {
@@ -448,6 +476,12 @@ export class Provider extends ethers.providers.JsonRpcProvider {
                 ...(await ethers.utils.resolveProperties(tx.overrides)),
                 to: tx.to,
                 value: tx.amount
+            };
+        } else if (await this.isBaseTokenAddress(tx.token)) {
+            return {
+                ...(await ethers.utils.resolveProperties(tx.overrides)),
+                to: tx.to,
+                value: tx.amount,
             };
         } else {
             const token = IERC20MetadataFactory.connect(tx.token, this);
@@ -628,6 +662,21 @@ export class Provider extends ethers.providers.JsonRpcProvider {
         });
 
         return fee;
+    }
+
+    async getBaseTokenAddress(): Promise<string> {
+        if (!this.contractAddresses.baseToken) {
+            await this.getDefaultBridgeAddresses();
+        }
+        let baseToken = this.contractAddresses.baseToken;
+        if (baseToken == undefined) {
+            baseToken = "0x"
+        }
+        return baseToken;
+    }
+
+    async isBaseTokenAddress(token: Address): Promise<boolean> {
+        return token.toLowerCase() == (await this.getBaseTokenAddress());
     }
 }
 

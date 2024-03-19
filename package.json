@@ -18,7 +18,8 @@
     "ethers": "~5.7.0",
     "mocha": "^9.0.2",
     "ts-node": "^10.0.0",
-    "typescript": "^4.3.5"
+    "typescript": "^4.3.5",
+    "prettier": "3.0.3"
   },
   "peerDependencies": {
     "ethers": "^5.7.0"
@@ -26,6 +27,8 @@
   "scripts": {
     "tests": "mocha -r ts-node/register tests/**/*.test.ts",
     "build": "tsc && cp -f typechain/*.d.ts build/typechain",
-    "watch": "tsc --watch"
+    "lint": "prettier . --write",
+    "watch": "tsc --watch",
+    "cro-test": "mocha -r ts-node/register --bail tests/baseToken.test.ts"
   }
 }
